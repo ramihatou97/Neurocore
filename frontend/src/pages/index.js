@@ -13,3 +13,4 @@ export { default as PDFsList } from './PDFsList';
 export { default as PDFUpload } from './PDFUpload';
 export { default as TasksList } from './TasksList';
 export { default as Search } from './Search';
+export { default as Analytics } from './Analytics';

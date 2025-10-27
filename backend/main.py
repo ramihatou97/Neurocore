@@ -135,6 +135,11 @@ from backend.api import export_routes
 app.include_router(export_routes.router, prefix="/api/v1", tags=["export"])
 logger.info("Export routes registered at /api/v1/export")
 
+# Phase 12: Analytics routes
+from backend.api import analytics_routes
+app.include_router(analytics_routes.router, prefix="/api/v1/analytics", tags=["analytics"])
+logger.info("Analytics routes registered at /api/v1/analytics")
+
 
 if __name__ == "__main__":
     import uvicorn

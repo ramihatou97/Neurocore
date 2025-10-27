@@ -16,3 +16,5 @@ export { default as ProtectedRoute } from './ProtectedRoute';
 export { default as VersionHistory } from './VersionHistory';
 export { default as VersionCompare } from './VersionCompare';
 export { default as ExportDialog } from './ExportDialog';
+export { default as MetricCard } from './MetricCard';
+export { default as ActivityChart } from './ActivityChart';
