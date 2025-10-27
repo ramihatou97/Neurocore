@@ -130,6 +130,11 @@ from backend.api import version_routes
 app.include_router(version_routes.router, prefix="/api/v1", tags=["versions"])
 logger.info("Version routes registered at /api/v1/versions")
 
+# Phase 11: Export routes
+from backend.api import export_routes
+app.include_router(export_routes.router, prefix="/api/v1", tags=["export"])
+logger.info("Export routes registered at /api/v1/export")
+
 
 if __name__ == "__main__":
     import uvicorn

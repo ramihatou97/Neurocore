@@ -15,3 +15,4 @@ export { default as ProgressBar } from './ProgressBar';
 export { default as ProtectedRoute } from './ProtectedRoute';
 export { default as VersionHistory } from './VersionHistory';
 export { default as VersionCompare } from './VersionCompare';
+export { default as ExportDialog } from './ExportDialog';

@@ -12,6 +12,7 @@ from backend.database.models.image import Image
 from backend.database.models.citation import Citation
 from backend.database.models.cache_analytics import CacheAnalytics
 from backend.database.models.task import Task
+from backend.database.models.export_template import ExportTemplate, CitationStyle, ExportHistory
 
 __all__ = [
     # Base classes
@@ -28,4 +29,7 @@ __all__ = [
     "Citation",
     "CacheAnalytics",
     "Task",
+    "ExportTemplate",
+    "CitationStyle",
+    "ExportHistory",
 ]
