@@ -140,6 +140,11 @@ from backend.api import analytics_routes
 app.include_router(analytics_routes.router, prefix="/api/v1/analytics", tags=["analytics"])
 logger.info("Analytics routes registered at /api/v1/analytics")
 
+# Phase 14: AI Features routes
+from backend.api import ai_routes
+app.include_router(ai_routes.router, prefix="/api/v1/ai", tags=["ai"])
+logger.info("AI Features routes registered at /api/v1/ai")
+
 
 if __name__ == "__main__":
     import uvicorn
