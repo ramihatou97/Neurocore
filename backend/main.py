@@ -150,6 +150,11 @@ from backend.api import performance_routes
 app.include_router(performance_routes.router, prefix="/api/v1/performance", tags=["performance"])
 logger.info("Performance monitoring routes registered at /api/v1/performance")
 
+# Phase 18: Advanced Content Features routes
+from backend.api import content_features_routes
+app.include_router(content_features_routes.router, prefix="/api/v1/content", tags=["content-features"])
+logger.info("Content features routes registered at /api/v1/content")
+
 
 if __name__ == "__main__":
     import uvicorn
