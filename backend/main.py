@@ -145,6 +145,11 @@ from backend.api import ai_routes
 app.include_router(ai_routes.router, prefix="/api/v1/ai", tags=["ai"])
 logger.info("AI Features routes registered at /api/v1/ai")
 
+# Phase 15: Performance & Optimization routes
+from backend.api import performance_routes
+app.include_router(performance_routes.router, prefix="/api/v1/performance", tags=["performance"])
+logger.info("Performance monitoring routes registered at /api/v1/performance")
+
 
 if __name__ == "__main__":
     import uvicorn
