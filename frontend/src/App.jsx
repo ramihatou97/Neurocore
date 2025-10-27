@@ -16,6 +16,7 @@ import {
   PDFsList,
   PDFUpload,
   TasksList,
+  Search,
 } from './pages';
 
 function App() {
@@ -89,6 +90,16 @@ function App() {
               element={
                 <ProtectedRoute>
                   <TasksList />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Search Route */}
+            <Route
+              path="/search"
+              element={
+                <ProtectedRoute>
+                  <Search />
                 </ProtectedRoute>
               }
             />

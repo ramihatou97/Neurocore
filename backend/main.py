@@ -120,8 +120,10 @@ from backend.api import websocket_routes
 app.include_router(websocket_routes.router, prefix="/api/v1", tags=["websocket"])
 logger.info("WebSocket routes registered at /api/v1/ws")
 
-# Future routes will be added here as we build each phase:
-# Phase 7: React Frontend
+# Phase 8: Search routes
+from backend.api import search_routes
+app.include_router(search_routes.router, prefix="/api/v1", tags=["search"])
+logger.info("Search routes registered at /api/v1/search")
 
 
 if __name__ == "__main__":
