@@ -202,6 +202,16 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         cascade="all, delete-orphan"
     )
 
+    # ==================== Granular Version History ====================
+    # Relationship to chapter_versions table for granular edit history
+    # This captures every edit/change with full content snapshots
+    version_history: Mapped[List["ChapterVersion"]] = relationship(
+        "ChapterVersion",
+        back_populates="chapter",
+        cascade="all, delete-orphan",
+        order_by="desc(ChapterVersion.version_number)"
+    )
+
     def __repr__(self) -> str:
         return f"<Chapter(id={self.id}, title='{self.title[:50]}...', version='{self.version}', status='{self.generation_status}')>"
 

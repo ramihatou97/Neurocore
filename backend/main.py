@@ -125,6 +125,11 @@ from backend.api import search_routes
 app.include_router(search_routes.router, prefix="/api/v1", tags=["search"])
 logger.info("Search routes registered at /api/v1/search")
 
+# Phase 9: Version routes
+from backend.api import version_routes
+app.include_router(version_routes.router, prefix="/api/v1", tags=["versions"])
+logger.info("Version routes registered at /api/v1/versions")
+
 
 if __name__ == "__main__":
     import uvicorn
