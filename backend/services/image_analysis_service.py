@@ -98,8 +98,8 @@ class ImageAnalysisService:
             # Encode image
             image_base64 = self._encode_image(image_path)
 
-            # Call Claude Vision
-            result = await self.ai_service.generate_vision_analysis(
+            # Call Vision API with fallback (Claude → OpenAI → Google)
+            result = await self.ai_service.generate_vision_analysis_with_fallback(
                 image_base64=image_base64,
                 prompt=prompt,
                 task=AITask.IMAGE_ANALYSIS

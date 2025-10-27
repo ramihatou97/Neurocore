@@ -14,7 +14,10 @@ from backend.database.models import PDF, Image
 from backend.services.pdf_service import PDFService
 from backend.services.image_analysis_service import ImageAnalysisService
 from backend.services.embedding_service import EmbeddingService
+from backend.services.task_service import TaskService
 from backend.utils import get_logger
+from backend.utils.websocket_emitter import emitter
+from backend.utils.events import EventType
 
 logger = get_logger(__name__)
 
@@ -145,6 +148,16 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
         self.db_session.commit()
 
         logger.info(f"Text extraction complete for {pdf_id}: {result['page_count']} pages")
+
+        # Emit WebSocket event
+        import asyncio
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_TEXT_EXTRACTED,
+            "text_extraction",
+            f"Extracted text from {result['page_count']} pages",
+            progress=20
+        ))
 
         return {
             "pdf_id": pdf_id,

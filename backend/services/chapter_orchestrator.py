@@ -13,6 +13,8 @@ from backend.services.ai_provider_service import AIProviderService, AITask
 from backend.services.research_service import ResearchService
 from backend.config import settings
 from backend.utils import get_logger
+from backend.utils.websocket_emitter import emitter
+from backend.utils.events import ChapterStage
 
 logger = get_logger(__name__)
 
@@ -85,29 +87,76 @@ class ChapterOrchestrator:
         self.db.refresh(chapter)
 
         try:
-            # Execute 14-stage workflow
+            # Execute 14-stage workflow with WebSocket progress updates
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_1_INPUT, 1, "Validating input and analyzing topic")
             await self._stage_1_input_validation(chapter, topic)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_2_CONTEXT, 2, "Building context and extracting entities")
             await self._stage_2_context_building(chapter, topic)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_3_RESEARCH_INTERNAL, 3, "Searching internal database for relevant sources")
             await self._stage_3_internal_research(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_4_RESEARCH_EXTERNAL, 4, "Querying PubMed for recent publications")
             await self._stage_4_external_research(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_5_PLANNING, 5, "Planning chapter structure and outline")
             await self._stage_5_synthesis_planning(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_6_GENERATION, 6, "Generating chapter sections with AI")
             await self._stage_6_section_generation(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_7_IMAGES, 7, "Integrating relevant images")
             await self._stage_7_image_integration(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_8_CITATIONS, 8, "Building citation network")
             await self._stage_8_citation_network(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_9_QA, 9, "Performing quality assurance checks")
             await self._stage_9_quality_assurance(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_10_FACT_CHECK, 10, "Fact-checking with sources")
             await self._stage_10_fact_checking(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_11_FORMATTING, 11, "Applying formatting and structure")
             await self._stage_11_formatting(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_12_REVIEW, 12, "Reviewing and refining content")
             await self._stage_12_review_refinement(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_13_FINALIZATION, 13, "Finalizing chapter metadata")
             await self._stage_13_finalization(chapter)
+
+            await emitter.emit_chapter_progress(str(chapter.id), ChapterStage.STAGE_14_DELIVERY, 14, "Delivering final chapter")
             await self._stage_14_delivery(chapter)
 
             logger.info(f"Chapter generation completed: {chapter.id}")
+
+            # Emit completion event
+            await emitter.emit_chapter_completed(
+                str(chapter.id),
+                "Chapter generation completed successfully",
+                {
+                    "depth_score": chapter.depth_score,
+                    "coverage_score": chapter.coverage_score,
+                    "evidence_score": chapter.evidence_score,
+                    "currency_score": chapter.currency_score
+                }
+            )
 
         except Exception as e:
             logger.error(f"Chapter generation failed at stage {chapter.generation_status}: {str(e)}", exc_info=True)
             chapter.generation_status = "failed"
             chapter.generation_error = str(e)
             self.db.commit()
+
+            # Emit failure event
+            await emitter.emit_chapter_failed(
+                str(chapter.id),
+                str(e),
+                {"stage": chapter.generation_status}
+            )
+
             raise
 
         return chapter

@@ -377,3 +377,193 @@ class AIProviderService:
             "cost_usd": cost_usd,
             "model": "claude-sonnet-4"
         }
+
+    async def _generate_claude_vision(
+        self,
+        image_data: bytes,
+        prompt: str,
+        max_tokens: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Generate image analysis using Claude Vision
+
+        Wrapper around analyze_image for consistency with other vision providers
+
+        Args:
+            image_data: Image bytes
+            prompt: Analysis prompt
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            dict with analysis results
+        """
+        return await self.analyze_image(image_data, prompt, max_tokens)
+
+    async def _generate_openai_vision(
+        self,
+        image_data: bytes,
+        prompt: str,
+        max_tokens: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Generate image analysis using OpenAI Vision (GPT-4 Vision)
+
+        Args:
+            image_data: Image bytes
+            prompt: Analysis prompt
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            dict with analysis results
+        """
+        if not self.openai_client:
+            raise ValueError("OpenAI client not initialized")
+
+        import base64
+
+        # Encode image to base64
+        image_b64 = base64.b64encode(image_data).decode('utf-8')
+
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_b64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=max_tokens
+        )
+
+        text = response.choices[0].message.content if response.choices else ""
+
+        # Calculate cost (GPT-4 Vision pricing)
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
+        cost_usd = (
+            (input_tokens / 1000) * 0.01 +  # $0.01 per 1K input tokens
+            (output_tokens / 1000) * 0.03   # $0.03 per 1K output tokens
+        )
+
+        logger.info(f"OpenAI Vision analysis: ${cost_usd:.4f}")
+
+        return {
+            "text": text,
+            "provider": "openai_vision",
+            "tokens_used": input_tokens + output_tokens,
+            "cost_usd": cost_usd,
+            "model": "gpt-4-vision-preview"
+        }
+
+    async def _generate_google_vision(
+        self,
+        image_data: bytes,
+        prompt: str,
+        max_tokens: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Generate image analysis using Google Gemini Vision (optional)
+
+        Args:
+            image_data: Image bytes
+            prompt: Analysis prompt
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            dict with analysis results
+        """
+        if not self.gemini_model:
+            raise ValueError("Gemini client not initialized")
+
+        import PIL.Image
+        import io
+
+        # Convert bytes to PIL Image
+        image = PIL.Image.open(io.BytesIO(image_data))
+
+        # Generate response
+        response = self.gemini_model.generate_content(
+            [prompt, image],
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.4
+            )
+        )
+
+        text = response.text if hasattr(response, 'text') else ""
+
+        # Gemini doesn't provide token counts in the same way, estimate
+        estimated_tokens = len(text.split()) * 1.3  # Rough estimate
+        cost_usd = (estimated_tokens / 1000) * 0.001  # Approximate cost
+
+        logger.info(f"Google Vision analysis: ${cost_usd:.4f}")
+
+        return {
+            "text": text,
+            "provider": "google_vision",
+            "tokens_used": int(estimated_tokens),
+            "cost_usd": cost_usd,
+            "model": "gemini-pro-vision"
+        }
+
+    async def generate_vision_analysis_with_fallback(
+        self,
+        image_base64: str,
+        prompt: str,
+        task: AITask = AITask.IMAGE_ANALYSIS,
+        max_tokens: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Generate vision analysis with hierarchical fallback
+
+        Fallback order: Claude Vision → OpenAI Vision → Google Vision (optional)
+
+        Args:
+            image_base64: Base64 encoded image
+            prompt: Analysis prompt
+            task: Task type
+            max_tokens: Maximum tokens
+
+        Returns:
+            Analysis result with provider info
+        """
+        import base64
+
+        # Decode base64 to bytes
+        image_data = base64.b64decode(image_base64)
+
+        # Try Claude Vision first
+        try:
+            logger.info("Attempting Claude Vision analysis")
+            result = await self._generate_claude_vision(image_data, prompt, max_tokens)
+            return result
+        except Exception as e:
+            logger.warning(f"Claude Vision failed: {str(e)}, falling back to OpenAI Vision")
+
+        # Fall back to OpenAI Vision
+        try:
+            logger.info("Attempting OpenAI Vision analysis")
+            result = await self._generate_openai_vision(image_data, prompt, max_tokens)
+            return result
+        except Exception as e:
+            logger.warning(f"OpenAI Vision failed: {str(e)}, falling back to Google Vision")
+
+        # Fall back to Google Vision (optional)
+        try:
+            logger.info("Attempting Google Vision analysis")
+            result = await self._generate_google_vision(image_data, prompt, max_tokens)
+            return result
+        except Exception as e:
+            logger.error(f"All vision providers failed: {str(e)}")
+            raise ValueError("All vision providers failed for image analysis")

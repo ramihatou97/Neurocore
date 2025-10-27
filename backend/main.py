@@ -115,8 +115,13 @@ from backend.api import task_routes
 app.include_router(task_routes.router, prefix="/api/v1", tags=["tasks"])
 logger.info("Task routes registered at /api/v1/tasks")
 
+# Phase 6: WebSocket routes
+from backend.api import websocket_routes
+app.include_router(websocket_routes.router, prefix="/api/v1", tags=["websocket"])
+logger.info("WebSocket routes registered at /api/v1/ws")
+
 # Future routes will be added here as we build each phase:
-# Phase 6: WebSocket routes for real-time updates
+# Phase 7: React Frontend
 
 
 if __name__ == "__main__":
