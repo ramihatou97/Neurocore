@@ -176,12 +176,26 @@ class Settings(BaseSettings):
     GOOGLE_GEMINI_INPUT_COST_PER_1K: float = 0.00025
     GOOGLE_GEMINI_OUTPUT_COST_PER_1K: float = 0.0005
 
+    # ==================== Server Ports ====================
+    API_PORT: int = 8002
+    FRONTEND_PORT: int = 3002
+    API_URL: str = "http://localhost:8002"
+    FRONTEND_URL: str = "http://localhost:3002"
+
     # ==================== CORS ====================
     CORS_ORIGINS: list = [
         "http://localhost:3000",
         "http://localhost:8000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:8001",
+        "http://localhost:8002",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:8000"
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:8001",
+        "http://127.0.0.1:8002"
     ]
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_ALLOW_METHODS: list = ["*"]
