@@ -150,6 +150,8 @@ class Settings(BaseSettings):
 
     # PubMed
     PUBMED_API_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    PUBMED_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    PUBMED_EFETCH_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
     PUBMED_EMAIL: Optional[str] = None
     PUBMED_API_KEY: Optional[str] = None
     PUBMED_MAX_RESULTS: int = 100

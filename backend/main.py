@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from backend.config import settings
 from backend.utils import configure_root_logger, get_logger
-from backend.api import auth_routes, pdf_routes
+from backend.api import auth_routes, pdf_routes, chapter_routes
 from backend.database import db
 
 # Configure logging
@@ -106,9 +106,12 @@ logger.info("Authentication routes registered at /api/v1/auth")
 app.include_router(pdf_routes.router, prefix="/api/v1", tags=["pdfs"])
 logger.info("PDF routes registered at /api/v1/pdfs")
 
-# Future routes will be added here as we build each phase:
 # Phase 4: Chapter routes
-# Phase 5: WebSocket routes
+app.include_router(chapter_routes.router, prefix="/api/v1", tags=["chapters"])
+logger.info("Chapter routes registered at /api/v1/chapters")
+
+# Future routes will be added here as we build each phase:
+# Phase 5: WebSocket routes for real-time updates
 
 
 if __name__ == "__main__":

@@ -124,7 +124,12 @@ CREATE TABLE IF NOT EXISTS chapters (
 
     -- Constraints
     CONSTRAINT chk_chapter_type CHECK (chapter_type IN ('surgical_disease', 'pure_anatomy', 'surgical_technique')),
-    CONSTRAINT chk_generation_status CHECK (generation_status IN ('draft', 'in_progress', 'completed', 'failed')),
+    CONSTRAINT chk_generation_status CHECK (generation_status IN (
+        'stage_1_input', 'stage_2_context', 'stage_3_research_internal', 'stage_4_research_external',
+        'stage_5_planning', 'stage_6_generation', 'stage_7_images', 'stage_8_citations',
+        'stage_9_qa', 'stage_10_fact_check', 'stage_11_formatting', 'stage_12_review',
+        'stage_13_finalization', 'completed', 'failed'
+    )),
     CONSTRAINT chk_quality_scores CHECK (
         (depth_score IS NULL OR (depth_score >= 0 AND depth_score <= 1)) AND
         (coverage_score IS NULL OR (coverage_score >= 0 AND coverage_score <= 1)) AND
