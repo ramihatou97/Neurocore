@@ -10,6 +10,7 @@ from backend.database.models.chapter import Chapter
 from backend.database.models.image import Image
 from backend.database.models.citation import Citation
 from backend.database.models.cache_analytics import CacheAnalytics
+from backend.database.models.task import Task
 
 __all__ = [
     # Base classes
@@ -24,4 +25,5 @@ __all__ = [
     "Image",
     "Citation",
     "CacheAnalytics",
+    "Task",
 ]

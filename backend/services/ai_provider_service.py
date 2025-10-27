@@ -371,8 +371,9 @@ class AIProviderService:
         logger.info(f"Claude Vision analysis: ${cost_usd:.4f}")
 
         return {
-            "analysis": text,
+            "text": text,  # Changed from "analysis" to match generate_text signature
             "provider": "claude_vision",
             "tokens_used": input_tokens + output_tokens,
-            "cost_usd": cost_usd
+            "cost_usd": cost_usd,
+            "model": "claude-sonnet-4"
         }

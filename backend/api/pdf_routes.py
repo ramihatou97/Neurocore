@@ -383,3 +383,59 @@ async def get_pdf_images(
     images = pdf_service.get_pdf_images(pdf_id)
 
     return [ImageResponse(**img.to_dict()) for img in images]
+
+
+@router.post(
+    "/{pdf_id}/process",
+    summary="Start background PDF processing",
+    description="""
+    Start asynchronous processing pipeline for a PDF:
+    1. Extract text
+    2. Extract images
+    3. Analyze images with Claude Vision
+    4. Generate embeddings
+    5. Extract citations
+
+    Returns task ID for status tracking.
+    """
+)
+async def start_pdf_processing(
+    pdf_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Start background processing for a PDF
+
+    Returns task ID for tracking progress via /api/v1/tasks/{task_id}
+    """
+    from backend.services.background_tasks import start_pdf_processing
+    from backend.services.task_service import TaskService
+
+    logger.info(f"Starting background processing for PDF: {pdf_id}")
+
+    # Check PDF exists
+    pdf_service = PDFService(db)
+    pdf = pdf_service.get_pdf(pdf_id)
+
+    # Start background task
+    task_info = start_pdf_processing(pdf_id)
+
+    # Create task tracking record
+    task_service = TaskService(db)
+    task = task_service.create_task(
+        task_id=task_info["task_id"],
+        task_type="pdf_processing",
+        user=current_user,
+        entity_id=pdf_id,
+        entity_type="pdf",
+        total_steps=5  # text, images, analysis, embeddings, citations
+    )
+
+    return {
+        "message": "PDF processing started",
+        "pdf_id": pdf_id,
+        "task_id": task_info["task_id"],
+        "status": "queued",
+        "track_progress_at": f"/api/v1/tasks/{task_info['task_id']}"
+    }

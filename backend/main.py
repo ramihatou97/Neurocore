@@ -110,8 +110,13 @@ logger.info("PDF routes registered at /api/v1/pdfs")
 app.include_router(chapter_routes.router, prefix="/api/v1", tags=["chapters"])
 logger.info("Chapter routes registered at /api/v1/chapters")
 
+# Phase 5: Task routes
+from backend.api import task_routes
+app.include_router(task_routes.router, prefix="/api/v1", tags=["tasks"])
+logger.info("Task routes registered at /api/v1/tasks")
+
 # Future routes will be added here as we build each phase:
-# Phase 5: WebSocket routes for real-time updates
+# Phase 6: WebSocket routes for real-time updates
 
 
 if __name__ == "__main__":

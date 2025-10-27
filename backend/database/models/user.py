@@ -65,6 +65,13 @@ class User(Base, UUIDMixin, TimestampMixin):
         lazy="selectin"
     )
 
+    tasks: Mapped[List["Task"]] = relationship(
+        "Task",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}', active={self.is_active})>"
 

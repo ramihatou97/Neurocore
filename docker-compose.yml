@@ -84,6 +84,121 @@ services:
       - neurosurgery-network
     restart: unless-stopped
 
+  # Celery Worker for default queue
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: neurosurgery-celery-worker
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-neurosurgery_kb}
+      - DB_USER=${DB_USER:-nsurg_admin}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend:/app
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=default --concurrency=2
+    networks:
+      - neurosurgery-network
+    restart: unless-stopped
+
+  # Celery Worker for image analysis queue
+  celery-worker-images:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: neurosurgery-celery-worker-images
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-neurosurgery_kb}
+      - DB_USER=${DB_USER:-nsurg_admin}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend:/app
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=images --concurrency=2
+    networks:
+      - neurosurgery-network
+    restart: unless-stopped
+
+  # Celery Worker for embeddings queue
+  celery-worker-embeddings:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: neurosurgery-celery-worker-embeddings
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-neurosurgery_kb}
+      - DB_USER=${DB_USER:-nsurg_admin}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend:/app
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=embeddings --concurrency=1
+    networks:
+      - neurosurgery-network
+    restart: unless-stopped
+
+  # Celery Flower for monitoring (optional, can comment out)
+  celery-flower:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: neurosurgery-celery-flower
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    depends_on:
+      - redis
+      - celery-worker
+    command: celery -A backend.services.celery_app flower --port=5555
+    networks:
+      - neurosurgery-network
+    restart: unless-stopped
+
   # React Frontend
   frontend:
     build:
