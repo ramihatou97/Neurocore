@@ -85,6 +85,10 @@ dmypy.json
 /data/images/*
 !/data/images/.gitkeep
 
+# Storage directory for uploaded files
+/storage/*
+!/storage/.gitkeep
+
 # Node modules (for frontend)
 node_modules/
 /frontend/node_modules/

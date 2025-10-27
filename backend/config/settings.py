@@ -162,6 +162,14 @@ class Settings(BaseSettings):
     ARXIV_API_URL: str = "http://export.arxiv.org/api/query"
     ARXIV_MAX_RESULTS: int = 50
 
+    # ==================== File Storage ====================
+    STORAGE_BASE_PATH: str = "./storage"
+    MAX_PDF_SIZE_MB: int = 100
+    MAX_IMAGE_SIZE_MB: int = 50
+    THUMBNAIL_SIZE: tuple = (300, 300)
+    ALLOWED_PDF_EXTENSIONS: list = [".pdf"]
+    ALLOWED_IMAGE_EXTENSIONS: list = [".png", ".jpg", ".jpeg", ".gif", ".bmp"]
+
     # ==================== Monitoring & Observability ====================
     ENABLE_METRICS: bool = True
     ENABLE_CACHE_ANALYTICS: bool = True

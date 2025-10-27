@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS pdfs (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Constraints
-    CONSTRAINT chk_indexing_status CHECK (indexing_status IN ('pending', 'processing', 'completed', 'failed'))
+    CONSTRAINT chk_indexing_status CHECK (indexing_status IN ('uploaded', 'extracting_text', 'text_extracted', 'extracting_images', 'images_extracted', 'text_extraction_failed', 'image_extraction_failed', 'pending', 'processing', 'completed', 'failed'))
 );
 
 -- Indexes for pdfs table
