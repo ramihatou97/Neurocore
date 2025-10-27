@@ -8,10 +8,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 import os
+from fastapi.testclient import TestClient
 
 from backend.database.models import Base
-from backend.database import db
+from backend.database import db, get_db
 from backend.config import settings
+from backend.main import app
 
 
 # Test database URL (override for local testing outside Docker)
@@ -74,6 +76,29 @@ def clean_db(db_session):
     """
     # Tables are already clean due to transaction rollback in db_session
     yield db_session
+
+
+@pytest.fixture(scope="function")
+def test_client(db_session):
+    """
+    Create a FastAPI test client with database session override
+
+    This ensures that API endpoint tests use the same transactional session
+    as the rest of the test, enabling proper test isolation.
+    """
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass  # Session cleanup handled by db_session fixture
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as client:
+        yield client
+
+    # Clean up dependency override
+    app.dependency_overrides.clear()
 
 
 # Model-specific fixtures for convenience
