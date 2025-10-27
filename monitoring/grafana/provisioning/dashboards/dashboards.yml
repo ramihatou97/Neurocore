@@ -1,0 +1,53 @@
+# Grafana Dashboard Provisioning
+# Automatically load dashboards on startup
+
+apiVersion: 1
+
+providers:
+  # ==================== Application Dashboards ====================
+  - name: 'Neurocore Application'
+    orgId: 1
+    folder: 'Neurocore'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/application
+      foldersFromFilesStructure: true
+
+  # ==================== Infrastructure Dashboards ====================
+  - name: 'Infrastructure'
+    orgId: 1
+    folder: 'Infrastructure'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/infrastructure
+      foldersFromFilesStructure: true
+
+  # ==================== Database Dashboards ====================
+  - name: 'Database'
+    orgId: 1
+    folder: 'Database'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/database
+      foldersFromFilesStructure: true
+
+  # ==================== Monitoring Stack Dashboards ====================
+  - name: 'Monitoring'
+    orgId: 1
+    folder: 'Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/monitoring
+      foldersFromFilesStructure: true

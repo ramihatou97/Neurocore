@@ -1,0 +1,72 @@
+# Grafana Datasource Provisioning
+# Automatically configure datasources on Grafana startup
+
+apiVersion: 1
+
+datasources:
+  # ==================== Prometheus Datasource ====================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      queryTimeout: 60s
+      # Custom HTTP headers if needed
+      # httpHeaderName1: 'Authorization'
+    # secureJsonData:
+    #   httpHeaderValue1: 'Bearer YOUR_TOKEN'
+    version: 1
+
+  # ==================== Loki Datasource ====================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    jsonData:
+      maxLines: 1000
+      timeout: 60s
+      derivedFields:
+        # Extract request_id from logs and link to trace
+        - datasourceUid: loki
+          matcherRegex: 'request_id=([\\w-]+)'
+          name: RequestID
+          url: '$${__value.raw}'
+    version: 1
+
+  # ==================== PostgreSQL Datasource ====================
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: neurosurgery_kb
+    user: neurosurgery_admin
+    secureJsonData:
+      password: '${POSTGRES_PASSWORD}'
+    isDefault: false
+    editable: true
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500  # PostgreSQL 15
+      timescaledb: false
+    version: 1
+
+  # ==================== Alertmanager Datasource ====================
+  - name: AlertManager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    isDefault: false
+    editable: true
+    jsonData:
+      implementation: prometheus
+    version: 1
+
+deleteDatasources:
+  - name: TestData DB
+    orgId: 1

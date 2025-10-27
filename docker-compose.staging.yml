@@ -1,0 +1,194 @@
+# =============================================================================
+# Staging Docker Compose Override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+# Similar to production but with debug enabled and smaller resource limits
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL - Staging configuration
+  postgres:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis - Staging configuration
+  redis:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # FastAPI Backend - Staging build
+  api:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: unless-stopped
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 2 --log-level info
+    user: "1000:1000"
+
+  # Celery Worker - Default queue (Staging)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: unless-stopped
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=default --concurrency=2
+    user: "1000:1000"
+
+  # Celery Worker - Images queue (Staging)
+  celery-worker-images:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: unless-stopped
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=images --concurrency=1
+    user: "1000:1000"
+
+  # Celery Worker - Embeddings queue (Staging)
+  celery-worker-embeddings:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: unless-stopped
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=info --queues=embeddings --concurrency=1
+    user: "1000:1000"
+
+  # Celery Flower - Staging
+  celery-flower:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    command: celery -A backend.services.celery_app flower --port=5555
+    user: "1000:1000"
+
+  # React Frontend - Staging build
+  frontend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend.production
+      args:
+        - VITE_API_URL=${API_URL}
+    restart: unless-stopped
+    volumes: []
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    user: "101:101"

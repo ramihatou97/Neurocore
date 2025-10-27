@@ -1,0 +1,172 @@
+version: '3.8'
+
+# ==================== Monitoring Stack ====================
+# Prometheus, Grafana, Loki, and exporters for comprehensive monitoring
+#
+# Ports:
+#   - Grafana:       3003 (UI)
+#   - Prometheus:    9091 (UI/API)
+#   - Loki:          3101 (API)
+#   - Node Exporter: 9101 (metrics)
+#   - cAdvisor:      8081 (metrics)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+services:
+  # ==================== Prometheus - Metrics Collection ====================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: neurocore_prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.listen-address=:9090'
+    ports:
+      - "9091:9090"  # Isolated port
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - neurocore_monitoring
+      - neurocore_network
+    depends_on:
+      - node-exporter
+      - cadvisor
+
+  # ==================== Grafana - Visualization ====================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: neurocore_grafana
+    restart: unless-stopped
+    ports:
+      - "3003:3000"  # Isolated port
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-SecureGrafanaPassword2025!}
+      - GF_SERVER_ROOT_URL=http://localhost:3003
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_LOG_MODE=console
+      - GF_LOG_LEVEL=info
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - neurocore_monitoring
+      - neurocore_network
+    depends_on:
+      - prometheus
+      - loki
+
+  # ==================== Loki - Log Aggregation ====================
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: neurocore_loki
+    restart: unless-stopped
+    ports:
+      - "3101:3100"  # Isolated port
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - neurocore_monitoring
+      - neurocore_network
+
+  # ==================== Promtail - Log Shipper ====================
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: neurocore_promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./monitoring/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - neurocore_monitoring
+    depends_on:
+      - loki
+
+  # ==================== Node Exporter - System Metrics ====================
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: neurocore_node_exporter
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9101:9100"  # Isolated port
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - neurocore_monitoring
+
+  # ==================== cAdvisor - Container Metrics ====================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: neurocore_cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8081:8080"  # Isolated port
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      - neurocore_monitoring
+
+  # ==================== AlertManager - Alert Routing ====================
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: neurocore_alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=:9093'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/config.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - neurocore_monitoring
+
+networks:
+  neurocore_monitoring:
+    name: neurocore_monitoring
+    driver: bridge
+  neurocore_network:
+    external: true
+
+volumes:
+  prometheus_data:
+    name: neurocore_prometheus_data
+  grafana_data:
+    name: neurocore_grafana_data
+  loki_data:
+    name: neurocore_loki_data
+  alertmanager_data:
+    name: neurocore_alertmanager_data

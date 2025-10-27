@@ -1,0 +1,220 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ==================== Build and Push Docker Images ====================
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      backend_tag: ${{ steps.meta-backend.outputs.tags }}
+      frontend_tag: ${{ steps.meta-frontend.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=staging-
+            type=raw,value=staging-latest
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.backend.production
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=staging-
+            type=raw,value=staging-latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.frontend.production
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          build-args: |
+            VITE_API_URL=${{ secrets.STAGING_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==================== Deploy to Staging Server ====================
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment:
+      name: staging
+      url: ${{ secrets.STAGING_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy deployment files to server
+        run: |
+          scp -i ~/.ssh/staging_key \
+            docker-compose.yml \
+            docker-compose.staging.yml \
+            ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/neurocore/
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/neurocore
+
+            # Login to container registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull latest images
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
+
+            # Stop old containers gracefully
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml down --timeout 30
+
+            # Run database migrations
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm api alembic upgrade head
+
+            # Start new containers
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+            # Wait for services to be ready
+            sleep 10
+
+            # Health check
+            curl -f http://localhost:8002/health || exit 1
+
+            # Clean up old images
+            docker image prune -af --filter "until=72h"
+
+  # ==================== Smoke Tests ====================
+  smoke-tests:
+    name: Staging Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Wait for deployment to stabilize
+        run: sleep 15
+
+      - name: Test API health endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.STAGING_API_URL }}/health)
+          if [ "$response" != "200" ]; then
+            echo "Health check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+      - name: Test API readiness endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.STAGING_API_URL }}/ready)
+          if [ "$response" != "200" ]; then
+            echo "Readiness check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Readiness check passed"
+
+      - name: Test frontend accessibility
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.STAGING_URL }})
+          if [ "$response" != "200" ]; then
+            echo "Frontend check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Frontend accessible"
+
+      - name: Test authentication endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.STAGING_API_URL }}/api/v1/auth/health)
+          if [ "$response" != "200" ]; then
+            echo "Auth endpoint check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Auth endpoint accessible"
+
+  # ==================== Notification ====================
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Deployment Success Notification
+        if: needs.smoke-tests.result == 'success'
+        run: |
+          echo "✅ Staging deployment successful!"
+          echo "Environment: Staging"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "URL: ${{ secrets.STAGING_URL }}"
+
+      - name: Deployment Failure Notification
+        if: needs.smoke-tests.result == 'failure'
+        run: |
+          echo "❌ Staging deployment failed!"
+          echo "Check logs for details"
+          exit 1
+
+      # Optional: Integrate with Slack, Discord, or other notification services
+      # - name: Send Slack notification
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     text: 'Staging deployment ${{ job.status }}'
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

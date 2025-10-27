@@ -68,6 +68,15 @@ app.add_middleware(
     allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
+# Configure Security Headers (Phase 16)
+from backend.middleware import SecurityHeadersMiddleware
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    x_frame_options="SAMEORIGIN",
+    enable_hsts=not settings.DEBUG,  # Only enable HSTS in production
+)
+logger.info("Security headers middleware enabled")
+
 
 # ==================== Root & Health Check Routes ====================
 
@@ -83,17 +92,10 @@ async def root():
     }
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring"""
-    # Check database health
-    db_healthy = db.health_check()
-
-    return {
-        "status": "healthy" if db_healthy else "unhealthy",
-        "version": settings.APP_VERSION,
-        "database": "connected" if db_healthy else "disconnected"
-    }
+# Health check routes - comprehensive monitoring endpoints
+from backend.api import health_routes
+app.include_router(health_routes.router, tags=["health"])
+logger.info("Health check routes registered at /health, /ready, /startup")
 
 
 # ==================== API Router Registration ====================

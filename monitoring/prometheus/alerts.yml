@@ -1,0 +1,281 @@
+# Prometheus Alerting Rules for Neurocore
+# Define alerts for various system and application metrics
+
+groups:
+  # ==================== Application Health ====================
+  - name: application_health
+    interval: 30s
+    rules:
+      - alert: APIDown
+        expr: up{job="neurocore-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "API is down"
+          description: "The Neurocore API has been unreachable for more than 2 minutes."
+
+      - alert: HighResponseTime
+        expr: http_request_duration_seconds{job="neurocore-api",quantile="0.95"} > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High API response time"
+          description: "95th percentile response time is above 2 seconds for 5 minutes."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{job="neurocore-api",status=~"5.."}[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is above 5% for 3 minutes."
+
+  # ==================== Database Health ====================
+  - name: database_health
+    interval: 30s
+    rules:
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database has been unreachable for more than 1 minute."
+
+      - alert: HighDatabaseConnections
+        expr: pg_stat_database_numbackends{datname="neurosurgery_kb"} > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "High number of database connections"
+          description: "Database has more than 80 active connections for 5 minutes."
+
+      - alert: DatabaseReplicationLag
+        expr: pg_replication_lag > 60
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "Database replication lag detected"
+          description: "Replication lag is more than 60 seconds."
+
+  # ==================== Cache Health ====================
+  - name: cache_health
+    interval: 30s
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache has been unreachable for more than 2 minutes."
+
+      - alert: HighRedisCPU
+        expr: redis_cpu_sys_seconds_total > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "High Redis CPU usage"
+          description: "Redis CPU usage is above 80% for 5 minutes."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using more than 90% of allocated memory."
+
+  # ==================== System Resources ====================
+  - name: system_resources
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for 10 minutes on {{ $labels.instance }}."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% for 10 minutes on {{ $labels.instance }}."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 15% on {{ $labels.instance }}."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical disk space"
+          description: "Disk space is below 10% on {{ $labels.instance }}."
+
+      - alert: HighIOWait
+        expr: rate(node_cpu_seconds_total{mode="iowait"}[5m]) * 100 > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High IO wait time"
+          description: "IO wait time is above 30% for 10 minutes."
+
+  # ==================== Container Health ====================
+  - name: container_health
+    interval: 30s
+    rules:
+      - alert: ContainerDown
+        expr: up{job="cadvisor"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container monitoring is down"
+          description: "cAdvisor container monitoring is unreachable."
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container memory usage is high"
+          description: "Container {{ $labels.name }} is using more than 90% of allocated memory."
+
+      - alert: ContainerHighCPU
+        expr: rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container CPU usage is high"
+          description: "Container {{ $labels.name }} CPU usage is above 80% for 10 minutes."
+
+      - alert: ContainerRestarting
+        expr: rate(container_last_seen[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "Container is restarting frequently"
+          description: "Container {{ $labels.name }} has been restarting frequently."
+
+  # ==================== Celery Workers ====================
+  - name: celery_workers
+    interval: 30s
+    rules:
+      - alert: CeleryWorkerDown
+        expr: up{job="celery"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          service: celery
+        annotations:
+          summary: "Celery worker is down"
+          description: "Celery worker has been unreachable for more than 3 minutes."
+
+      - alert: CeleryQueueBacklog
+        expr: celery_queue_length > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: celery
+        annotations:
+          summary: "Large Celery queue backlog"
+          description: "Celery queue has more than 1000 pending tasks."
+
+      - alert: CeleryTaskFailureRate
+        expr: rate(celery_task_failed_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: celery
+        annotations:
+          summary: "High Celery task failure rate"
+          description: "Celery task failure rate is above 10% for 5 minutes."
+
+  # ==================== Monitoring Stack ====================
+  - name: monitoring_health
+    interval: 60s
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: prometheus
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus monitoring is unreachable."
+
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: grafana
+        annotations:
+          summary: "Grafana is down"
+          description: "Grafana visualization is unreachable."
+
+      - alert: LokiDown
+        expr: up{job="loki"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: loki
+        annotations:
+          summary: "Loki is down"
+          description: "Loki log aggregation is unreachable."
+
+      - alert: PrometheusStorageAlmostFull
+        expr: (1 - (prometheus_tsdb_storage_blocks_bytes / prometheus_tsdb_storage_blocks_bytes_total)) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus storage is almost full"
+          description: "Prometheus storage is less than 10% free."

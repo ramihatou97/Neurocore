@@ -1,10 +1,18 @@
 version: '3.8'
 
+# ============================================================
+# PROJECT ISOLATION: This project is completely isolated
+# Project name: neurocore (distinct from other projects)
+# All containers, volumes, and networks are uniquely named
+# ============================================================
+
+name: neurocore
+
 services:
   # PostgreSQL 15 with pgvector extension
   postgres:
     image: ankane/pgvector:v0.5.1
-    container_name: neurosurgery-postgres
+    container_name: neurocore-postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-neurosurgery_kb}
       POSTGRES_USER: ${DB_USER:-nsurg_admin}
@@ -26,7 +34,7 @@ services:
   # Redis 7 for hybrid smart caching
   redis:
     image: redis:7-alpine
-    container_name: neurosurgery-redis
+    container_name: neurocore-redis
     command: >
       redis-server
       --appendonly yes
@@ -50,9 +58,9 @@ services:
   # FastAPI Backend
   api:
     build:
-      context: ./backend
-      dockerfile: ../docker/Dockerfile.backend
-    container_name: neurosurgery-api
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: neurocore-api
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -69,7 +77,8 @@ services:
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
+      - ./.env:/app/.env
       - pdf_storage:/data/pdfs
       - image_storage:/data/images
     ports:
@@ -79,7 +88,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - neurosurgery-network
     restart: unless-stopped
@@ -87,9 +96,9 @@ services:
   # Celery Worker for default queue
   celery-worker:
     build:
-      context: ./backend
-      dockerfile: ../docker/Dockerfile.backend
-    container_name: neurosurgery-celery-worker
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: neurocore-celery-worker
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -103,7 +112,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
+      - ./.env:/app/.env
       - pdf_storage:/data/pdfs
       - image_storage:/data/images
     depends_on:
@@ -119,9 +129,9 @@ services:
   # Celery Worker for image analysis queue
   celery-worker-images:
     build:
-      context: ./backend
-      dockerfile: ../docker/Dockerfile.backend
-    container_name: neurosurgery-celery-worker-images
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: neurocore-celery-worker-images
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -135,7 +145,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
+      - ./.env:/app/.env
       - pdf_storage:/data/pdfs
       - image_storage:/data/images
     depends_on:
@@ -151,9 +162,9 @@ services:
   # Celery Worker for embeddings queue
   celery-worker-embeddings:
     build:
-      context: ./backend
-      dockerfile: ../docker/Dockerfile.backend
-    container_name: neurosurgery-celery-worker-embeddings
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: neurocore-celery-worker-embeddings
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -167,7 +178,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
+      - ./.env:/app/.env
       - pdf_storage:/data/pdfs
       - image_storage:/data/images
     depends_on:
@@ -183,9 +195,9 @@ services:
   # Celery Flower for monitoring (optional, can comment out)
   celery-flower:
     build:
-      context: ./backend
-      dockerfile: ../docker/Dockerfile.backend
-    container_name: neurosurgery-celery-flower
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: neurocore-celery-flower
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -202,11 +214,11 @@ services:
   # React Frontend
   frontend:
     build:
-      context: ./frontend
-      dockerfile: ../docker/Dockerfile.frontend
-    container_name: neurosurgery-frontend
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend
+    container_name: neurocore-frontend
     environment:
-      - VITE_API_URL=${API_URL:-http://localhost:8000}
+      - VITE_API_URL=${API_URL:-http://localhost:8002}
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -221,15 +233,15 @@ services:
 
 volumes:
   postgres_data:
-    name: neurosurgery-postgres-data
+    name: neurocore-postgres-data
   redis_data:
-    name: neurosurgery-redis-data
+    name: neurocore-redis-data
   pdf_storage:
-    name: neurosurgery-pdf-storage
+    name: neurocore-pdf-storage
   image_storage:
-    name: neurosurgery-image-storage
+    name: neurocore-image-storage
 
 networks:
   neurosurgery-network:
-    name: neurosurgery-network
+    name: neurocore-network
     driver: bridge

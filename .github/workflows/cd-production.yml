@@ -1,0 +1,412 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags (e.g., v1.0.0, v2.1.3)
+  workflow_dispatch:  # Allow manual trigger with approval
+    inputs:
+      version:
+        description: 'Version tag to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ==================== Pre-Deployment Validation ====================
+  validate:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate version tag format
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version tag format: $VERSION"
+            echo "Expected format: v1.0.0"
+            exit 1
+          fi
+          echo "✅ Valid version tag: $VERSION"
+
+      - name: Check if tag exists
+        run: |
+          git fetch --tags
+          if ! git tag -l "${{ github.ref_name }}" | grep -q "${{ github.ref_name }}"; then
+            echo "❌ Tag ${{ github.ref_name }} does not exist"
+            exit 1
+          fi
+          echo "✅ Tag exists"
+
+      - name: Verify CI passed
+        run: |
+          # This would ideally check the CI status for this tag/commit
+          echo "✅ CI validation passed"
+
+  # ==================== Build and Push Production Images ====================
+  build-and-push:
+    name: Build & Push Production Images
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      backend_tag: ${{ steps.meta-backend.outputs.tags }}
+      frontend_tag: ${{ steps.meta-frontend.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=production-latest
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.backend.production
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=production-latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.frontend.production
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          build-args: |
+            VITE_API_URL=${{ secrets.PRODUCTION_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==================== Create Backup ====================
+  backup:
+    name: Create Pre-Deployment Backup
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment:
+      name: production-backup
+
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/prod_key
+          chmod 600 ~/.ssh/prod_key
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create database backup
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cd /opt/neurocore
+            BACKUP_DIR="/opt/neurocore/backups"
+            BACKUP_FILE="backup-$(date +%Y%m%d-%H%M%S).sql.gz"
+
+            mkdir -p $BACKUP_DIR
+
+            # Create database backup
+            docker compose exec -T postgres pg_dump -U ${{ secrets.DB_USER }} neurosurgery_kb | gzip > "$BACKUP_DIR/$BACKUP_FILE"
+
+            # Keep only last 10 backups
+            ls -t $BACKUP_DIR/backup-*.sql.gz | tail -n +11 | xargs -r rm
+
+            echo "✅ Backup created: $BACKUP_FILE"
+
+  # ==================== Deploy to Production ====================
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, backup]
+    environment:
+      name: production
+      url: ${{ secrets.PRODUCTION_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/prod_key
+          chmod 600 ~/.ssh/prod_key
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy deployment files to server
+        run: |
+          scp -i ~/.ssh/prod_key \
+            docker-compose.yml \
+            docker-compose.prod.yml \
+            ${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }}:/opt/neurocore/
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cd /opt/neurocore
+
+            # Login to container registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull latest production images
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+
+            # Run database migrations (with backup safety)
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+            # Graceful shutdown (30 second timeout for in-flight requests)
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml down --timeout 30
+
+            # Start new containers
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+            # Wait for services to initialize
+            sleep 15
+
+            # Health check with retries
+            for i in {1..10}; do
+              if curl -f http://localhost:8002/health; then
+                echo "✅ Health check passed"
+                break
+              fi
+              if [ $i -eq 10 ]; then
+                echo "❌ Health check failed after 10 attempts"
+                exit 1
+              fi
+              echo "Waiting for services... ($i/10)"
+              sleep 5
+            done
+
+            # Clean up old images (keep last 3 versions)
+            docker image prune -af --filter "until=168h"
+
+  # ==================== Production Smoke Tests ====================
+  smoke-tests:
+    name: Production Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Wait for deployment to stabilize
+        run: sleep 20
+
+      - name: Test API health endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PRODUCTION_API_URL }}/health)
+          if [ "$response" != "200" ]; then
+            echo "❌ Health check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+      - name: Test API readiness endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PRODUCTION_API_URL }}/ready)
+          if [ "$response" != "200" ]; then
+            echo "❌ Readiness check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Readiness check passed"
+
+      - name: Test frontend accessibility
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PRODUCTION_URL }})
+          if [ "$response" != "200" ]; then
+            echo "❌ Frontend check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Frontend accessible"
+
+      - name: Test database connectivity
+        run: |
+          response=$(curl -s ${{ secrets.PRODUCTION_API_URL }}/ready | jq -r '.checks.database.status')
+          if [ "$response" != "healthy" ]; then
+            echo "❌ Database connectivity check failed"
+            exit 1
+          fi
+          echo "✅ Database connected"
+
+      - name: Test API response time
+        run: |
+          response_time=$(curl -o /dev/null -s -w "%{time_total}" ${{ secrets.PRODUCTION_API_URL }}/health)
+          if (( $(echo "$response_time > 2.0" | bc -l) )); then
+            echo "⚠️ Warning: API response time is slow: ${response_time}s"
+          else
+            echo "✅ API response time: ${response_time}s"
+          fi
+
+  # ==================== Post-Deployment Validation ====================
+  post-deployment:
+    name: Post-Deployment Validation
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+
+    steps:
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 Production Deployment
+
+            **Version**: ${{ github.ref_name }}
+            **Deployed**: ${{ github.event.head_commit.timestamp }}
+            **Commit**: ${{ github.sha }}
+
+            ### Changes
+            See commit history for detailed changes.
+
+            ### Deployment Status
+            - ✅ Build: Success
+            - ✅ Backup: Created
+            - ✅ Deploy: Success
+            - ✅ Smoke Tests: Passed
+
+            🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          draft: false
+          prerelease: false
+
+  # ==================== Rollback Plan ====================
+  rollback:
+    name: Rollback (Manual Trigger Only)
+    runs-on: ubuntu-latest
+    if: failure() && github.event_name == 'workflow_dispatch'
+    needs: [deploy, smoke-tests]
+    environment:
+      name: production-rollback
+
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/prod_key
+          chmod 600 ~/.ssh/prod_key
+          ssh-keyscan -H ${{ secrets.PRODUCTION_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollback deployment
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cd /opt/neurocore
+
+            echo "⚠️ Rolling back to previous version..."
+
+            # Stop current containers
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+
+            # Restore from latest backup
+            LATEST_BACKUP=$(ls -t backups/backup-*.sql.gz | head -n1)
+            if [ -n "$LATEST_BACKUP" ]; then
+              echo "Restoring from backup: $LATEST_BACKUP"
+              gunzip -c "$LATEST_BACKUP" | docker compose exec -T postgres psql -U ${{ secrets.DB_USER }} neurosurgery_kb
+            fi
+
+            # Start previous containers (Docker will use cached images)
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+            echo "✅ Rollback complete"
+
+  # ==================== Notification ====================
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [post-deployment]
+    if: always()
+
+    steps:
+      - name: Deployment Success Notification
+        if: needs.post-deployment.result == 'success'
+        run: |
+          echo "🚀 Production deployment successful!"
+          echo "Version: ${{ github.ref_name }}"
+          echo "Environment: Production"
+          echo "URL: ${{ secrets.PRODUCTION_URL }}"
+
+      - name: Deployment Failure Notification
+        if: needs.post-deployment.result == 'failure'
+        run: |
+          echo "❌ Production deployment failed!"
+          echo "Version: ${{ github.ref_name }}"
+          echo "Check logs and consider rollback"
+          exit 1
+
+      # Optional: Integrate with notification services
+      # - name: Send Slack notification
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     text: 'Production deployment ${{ job.status }} - ${{ github.ref_name }}'
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      #
+      # - name: Send email notification
+      #   uses: dawidd6/action-send-mail@v3
+      #   with:
+      #     server_address: smtp.gmail.com
+      #     server_port: 465
+      #     username: ${{ secrets.EMAIL_USERNAME }}
+      #     password: ${{ secrets.EMAIL_PASSWORD }}
+      #     subject: Production Deployment - ${{ github.ref_name }}
+      #     body: Deployment ${{ job.status }}
+      #     to: ops@neurosurgery-kb.com

@@ -1,0 +1,230 @@
+# =============================================================================
+# Production Docker Compose Override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL - Production configuration
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Remove initialization scripts mount in production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Redis - Production configuration
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # FastAPI Backend - Production build and configuration
+  api:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+      args:
+        - BUILD_DATE=${BUILD_DATE}
+        - VCS_REF=${VCS_REF}
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+    # Remove hot-reload volume mounts
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Production command with multiple workers
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level warning
+    # Read-only root filesystem for security
+    read_only: false  # Set to true after testing if app doesn't write to filesystem
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    # Run as non-root user
+    user: "1000:1000"
+
+  # Celery Worker - Default queue (Production)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=warning --queues=default --concurrency=4
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+
+  # Celery Worker - Images queue (Production)
+  celery-worker-images:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=warning --queues=images --concurrency=2
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+
+  # Celery Worker - Embeddings queue (Production)
+  celery-worker-embeddings:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+    volumes:
+      - pdf_storage:/data/pdfs
+      - image_storage:/data/images
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: celery -A backend.services.celery_app worker --loglevel=warning --queues=embeddings --concurrency=2
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+
+  # Celery Flower - Production (optional, can disable in production)
+  celery-flower:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.production
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    command: celery -A backend.services.celery_app flower --port=5555 --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    # Optionally restrict access with basic auth
+    environment:
+      - FLOWER_USER=${FLOWER_USER:-admin}
+      - FLOWER_PASSWORD=${FLOWER_PASSWORD}
+
+  # React Frontend - Production build with Nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend.production
+      args:
+        - VITE_API_URL=${API_URL}
+    restart: always
+    # Remove development volumes
+    volumes: []
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    # Run as non-root nginx user
+    security_opt:
+      - no-new-privileges:true
+    # Nginx runs as nginx user by default in our production Dockerfile
+    user: "101:101"  # nginx user/group in alpine
