@@ -37,8 +37,8 @@ class ChapterVersion(Base):
     content = Column(Text, nullable=False)
     summary = Column(Text)
 
-    # Metadata
-    metadata = Column(JSONB, default={})
+    # Version metadata (renamed from 'metadata' to avoid SQLAlchemy reserved name)
+    version_metadata = Column(JSONB, default={})
     word_count = Column(Integer)
     character_count = Column(Integer)
     change_size = Column(Integer, default=0)  # Net characters added/removed
@@ -51,7 +51,7 @@ class ChapterVersion(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     # Relationships
-    chapter = relationship("Chapter", back_populates="versions")
+    chapter = relationship("Chapter", back_populates="version_history")
     user = relationship("User", foreign_keys=[changed_by])
 
     # Constraints
@@ -72,7 +72,7 @@ class ChapterVersion(Base):
             "title": self.title,
             "content": self.content,
             "summary": self.summary,
-            "metadata": self.metadata,
+            "metadata": self.version_metadata,
             "word_count": self.word_count,
             "character_count": self.character_count,
             "change_size": self.change_size,

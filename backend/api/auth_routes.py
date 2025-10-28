@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from backend.database import get_db, User
-from backend.services import AuthService
+from backend.services.auth_service import AuthService
 from backend.utils import get_logger, get_current_user, get_current_active_user
 
 logger = get_logger(__name__)

@@ -115,8 +115,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
 
         # Remove potentially leaky headers
-        response.headers.pop("Server", None)
-        response.headers.pop("X-Powered-By", None)
+        if "Server" in response.headers:
+            del response.headers["Server"]
+        if "X-Powered-By" in response.headers:
+            del response.headers["X-Powered-By"]
 
         # Add custom headers
         for header_name, header_value in self.custom_headers.items():

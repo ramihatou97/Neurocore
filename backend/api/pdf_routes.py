@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import get_db, User
-from backend.services import PDFService
+from backend.services.pdf_service import PDFService
 from backend.utils import get_logger, get_current_active_user
 from backend.database.models import PDF, Image
 

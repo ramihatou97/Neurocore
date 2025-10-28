@@ -9,7 +9,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from backend.database import get_db, User
-from backend.services import AuthService
+# Lazy import of AuthService to avoid circular dependency
+# from backend.services import AuthService (moved inside functions)
 from backend.utils import get_logger
 
 logger = get_logger(__name__)
@@ -40,6 +41,9 @@ async def get_current_user(
         async def protected_route(current_user: User = Depends(get_current_user)):
             return {"user": current_user.email}
     """
+    # Lazy import to avoid circular dependency
+    from backend.services.auth_service import AuthService
+
     token = credentials.credentials
     auth_service = AuthService(db)
 
@@ -158,6 +162,9 @@ def get_optional_current_user(
     """
     if credentials is None:
         return None
+
+    # Lazy import to avoid circular dependency
+    from backend.services.auth_service import AuthService
 
     auth_service = AuthService(db)
     try:

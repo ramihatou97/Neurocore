@@ -199,13 +199,31 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: neurocore-celery-flower
     environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-neurosurgery_kb}
+      - DB_USER=${DB_USER:-nsurg_admin}
+      - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
     ports:
       - "${FLOWER_PORT:-5555}:5555"
     depends_on:
-      - redis
-      - celery-worker
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
     command: celery -A backend.services.celery_app flower --port=5555
     networks:
       - neurosurgery-network
