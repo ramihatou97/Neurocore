@@ -1,5 +1,7 @@
 # Neurosurgery Knowledge Base
 
+> **Status**: Phase 19 Complete ✅ | All 8 containers running | 47 database tables | Production Ready
+
 An AI-powered neurosurgery knowledge base system with intelligent chapter generation, real-time streaming, and continuous evolution capabilities.
 
 ## Overview
@@ -47,7 +49,7 @@ This system implements a comprehensive 14-stage workflow for creating "Alive Cha
 
 - Docker and Docker Compose
 - Python 3.11+ (for local development)
-- Node.js 18+ (for frontend development)
+- Node.js 22+ (for frontend development)
 - API Keys:
   - OpenAI API key
   - Anthropic API key
@@ -84,16 +86,21 @@ docker-compose up -d
 docker-compose ps
 ```
 
-All services should show as "healthy":
-- `neurosurgery-postgres` (PostgreSQL)
-- `neurosurgery-redis` (Redis)
-- `neurosurgery-api` (FastAPI Backend)
-- `neurosurgery-frontend` (React Frontend)
+All 8 services should show as "Up" or "healthy":
+- `neurocore-postgres` (PostgreSQL + pgvector)
+- `neurocore-redis` (Redis)
+- `neurocore-api` (FastAPI Backend)
+- `neurocore-frontend` (React Frontend)
+- `neurocore-celery-worker` (Background tasks - default queue)
+- `neurocore-celery-worker-embeddings` (Embeddings generation)
+- `neurocore-celery-worker-images` (Image analysis)
+- `neurocore-celery-flower` (Celery monitoring UI)
 
 6. **Access the application**
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/api/docs
-- Frontend: http://localhost:3000
+- API: http://localhost:8002
+- API Docs: http://localhost:8002/api/docs
+- Frontend: http://localhost:3002
+- Celery Flower: http://localhost:5555
 
 ## Architecture
 
