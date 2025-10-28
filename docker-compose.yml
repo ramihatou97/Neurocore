@@ -236,7 +236,8 @@ services:
       dockerfile: ./docker/Dockerfile.frontend
     container_name: neurocore-frontend
     environment:
-      - VITE_API_URL=${API_URL:-http://localhost:8002}
+      - VITE_API_BASE_URL=http://localhost:8002
+      - VITE_WS_BASE_URL=ws://localhost:8002
     volumes:
       - ./frontend:/app
       - /app/node_modules

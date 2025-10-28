@@ -4,12 +4,12 @@
  */
 
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002';
 export const API_VERSION = '/api/v1';
 export const API_URL = `${API_BASE_URL}${API_VERSION}`;
 
 // WebSocket Configuration
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
+export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8002';
 export const WS_URL = `${WS_BASE_URL}${API_VERSION}/ws`;
 
 // Storage Keys
