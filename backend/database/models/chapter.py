@@ -106,6 +106,14 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         comment="Documents integrated, conflicts resolved, nuance merge results"
     )
 
+    # ==================== Phase 2 Week 5: Comprehensive Gap Analysis ====================
+
+    gap_analysis: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Phase 2 Week 5: Comprehensive gap analysis with identified gaps, severity distribution, recommendations, and completeness score"
+    )
+
     # ==================== Quality Scores ====================
 
     depth_score: Mapped[Optional[float]] = mapped_column(
@@ -265,6 +273,16 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
             "documents_integrated": self.stage_8_integration_log is not None
         }
 
+        # Phase 2 Week 5: Gap Analysis summary
+        if self.gap_analysis:
+            data["gap_analysis_summary"] = {
+                "total_gaps": self.gap_analysis.get("total_gaps", 0),
+                "critical_gaps": self.gap_analysis.get("severity_distribution", {}).get("critical", 0),
+                "completeness_score": self.gap_analysis.get("overall_completeness_score", 0.0),
+                "requires_revision": self.gap_analysis.get("requires_revision", False),
+                "analyzed_at": self.gap_analysis.get("analyzed_at")
+            }
+
         return data
 
     def get_word_count(self) -> int:
@@ -289,3 +307,19 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
             return False
         gaps = self.stage_6_gaps_detected.get("gaps", [])
         return len(gaps) > 0
+
+    def has_gap_analysis(self) -> bool:
+        """Check if Phase 2 gap analysis has been performed"""
+        return self.gap_analysis is not None
+
+    def requires_gap_revision(self) -> bool:
+        """Check if gap analysis indicates revision is required"""
+        if not self.gap_analysis:
+            return False
+        return self.gap_analysis.get("requires_revision", False)
+
+    def get_gap_completeness_score(self) -> float:
+        """Get gap analysis completeness score (0-1)"""
+        if not self.gap_analysis:
+            return 1.0  # No analysis = assume complete
+        return self.gap_analysis.get("overall_completeness_score", 1.0)

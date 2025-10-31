@@ -17,6 +17,8 @@ class EventType(str, Enum):
     CHAPTER_STAGE_UPDATE = "chapter_stage_update"
     CHAPTER_COMPLETED = "chapter_completed"
     CHAPTER_FAILED = "chapter_failed"
+    SECTION_GENERATED = "section_generated"
+    SECTION_REGENERATED = "section_regenerated"
 
     # Task events
     TASK_STARTED = "task_started"

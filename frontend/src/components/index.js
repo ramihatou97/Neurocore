@@ -18,3 +18,6 @@ export { default as VersionCompare } from './VersionCompare';
 export { default as ExportDialog } from './ExportDialog';
 export { default as MetricCard } from './MetricCard';
 export { default as ActivityChart } from './ActivityChart';
+export { default as SectionEditor } from './SectionEditor';
+export { default as SourceAdder } from './SourceAdder';
+export { default as GapAnalysisPanel } from './GapAnalysisPanel';

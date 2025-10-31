@@ -7,13 +7,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  Timeline,
-  TimelineItem,
-  TimelineSeparator,
-  TimelineConnector,
-  TimelineContent,
-  TimelineDot,
-  TimelineOppositeContent,
   Card,
   CardContent,
   CardActions,
@@ -32,6 +25,15 @@ import {
   Divider
 } from '@mui/material';
 import {
+  Timeline,
+  TimelineItem,
+  TimelineSeparator,
+  TimelineConnector,
+  TimelineContent,
+  TimelineDot,
+  TimelineOppositeContent
+} from '@mui/lab';
+import {
   History as HistoryIcon,
   CompareArrows as CompareIcon,
   RestoreRounded as RestoreIcon,
@@ -45,7 +47,7 @@ import {
 import axios from 'axios';
 import { format } from 'date-fns';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1';
 
 function VersionHistory({ chapterId, onCompare, onViewVersion }) {
   const [versions, setVersions] = useState([]);

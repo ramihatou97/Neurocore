@@ -113,3 +113,11 @@ credentials.json
 # Backup files
 *.bak
 *.backup
+
+# Diagnostic and status files (may contain API keys)
+API_KEYS_STATUS.md
+FIXES_APPLIED_SUMMARY.md
+*_STATUS.md
+diagnose_openai_key.py
+test_openai_key_quick.py
+update_openai_key.py

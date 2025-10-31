@@ -13,6 +13,7 @@ from backend.database.connection import get_db
 from backend.database.models import User
 from backend.services.analytics_service import AnalyticsService
 from backend.services.metrics_service import MetricsService
+from backend.services.cache_service import cache_service  # Phase 2: Cache analytics
 from backend.utils.dependencies import get_current_user
 from backend.utils import get_logger
 
@@ -815,6 +816,337 @@ async def get_daily_aggregates(
         raise HTTPException(status_code=500, detail=f"Failed to get aggregates: {str(e)}")
 
 
+# ==================== Cache Analytics (Phase 2) ====================
+
+@router.get("/cache/stats")
+async def get_cache_stats(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get cache statistics
+
+    Phase 2: Basic cache statistics including Redis metrics
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        stats = cache_service.get_cache_stats()
+
+        return {
+            "success": True,
+            "cache_stats": stats,
+            "retrieved_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get cache stats: {str(e)}")
+
+
+@router.get("/cache/analytics")
+async def get_cache_analytics(
+    search_type: Optional[str] = Query(None, description="Filter by search type (pubmed, search)"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed cache performance analytics
+
+    Phase 2: Comprehensive cache analytics including hit rates, response times, and speedup factors
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        analytics = cache_service.get_analytics(search_type=search_type)
+
+        return {
+            "success": True,
+            "cache_analytics": analytics,
+            "retrieved_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get cache analytics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get cache analytics: {str(e)}")
+
+
+@router.get("/cache/pubmed")
+async def get_pubmed_cache_stats(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get PubMed-specific cache statistics
+
+    Phase 2: Dedicated PubMed cache performance tracking with hit rates and speedup metrics
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        stats = cache_service.get_pubmed_cache_stats()
+
+        return {
+            "success": True,
+            "pubmed_cache_stats": stats,
+            "retrieved_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get PubMed cache stats: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get PubMed cache stats: {str(e)}")
+
+
+@router.post("/cache/analytics/reset")
+async def reset_cache_analytics(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Reset cache analytics counters
+
+    Phase 2: Reset in-memory analytics tracking
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        cache_service.reset_analytics()
+
+        return {
+            "success": True,
+            "message": "Cache analytics reset successfully",
+            "reset_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reset cache analytics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to reset cache analytics: {str(e)}")
+
+
+# ==================== Fact-Checking Analytics (Phase 3) ====================
+
+@router.get("/fact-checking/overview")
+async def get_fact_checking_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get fact-checking overview across all chapters
+
+    Returns aggregate metrics:
+    - Overall accuracy across all chapters
+    - Total claims verified
+    - Critical issues count
+    - Accuracy distribution
+    - Trending accuracy over time
+
+    Phase 3: GPT-4o powered medical fact-checking analytics
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.database.models import Chapter
+
+        # Get all fact-checked chapters
+        chapters = db.query(Chapter).filter(
+            Chapter.fact_checked == True,
+            Chapter.stage_10_fact_check.isnot(None)
+        ).all()
+
+        if not chapters:
+            return {
+                "success": True,
+                "message": "No fact-checked chapters found",
+                "overview": {
+                    "total_chapters_checked": 0,
+                    "overall_accuracy": 0.0,
+                    "total_claims": 0,
+                    "verified_claims": 0,
+                    "critical_issues_total": 0
+                }
+            }
+
+        # Aggregate metrics
+        total_chapters = len(chapters)
+        total_claims = 0
+        total_verified = 0
+        total_critical_issues = 0
+        total_high_severity = 0
+        total_cost = 0.0
+        accuracy_scores = []
+        pass_count = 0
+
+        # Accuracy distribution buckets
+        accuracy_distribution = {
+            "excellent": 0,  # >= 95%
+            "good": 0,       # 90-95%
+            "acceptable": 0,  # 80-90%
+            "poor": 0        # < 80%
+        }
+
+        # Claim category distribution
+        category_stats = {}
+
+        for chapter in chapters:
+            fact_check_data = chapter.stage_10_fact_check or {}
+
+            # Skip chapters with errors or no data
+            if fact_check_data.get("status") == "error":
+                continue
+
+            accuracy = fact_check_data.get("overall_accuracy", 0.0)
+            claims = fact_check_data.get("total_claims", 0)
+            verified = fact_check_data.get("verified_claims", 0)
+            critical = fact_check_data.get("critical_issues_count", 0)
+            high_sev = fact_check_data.get("high_severity_claims", 0)
+            cost = fact_check_data.get("ai_cost_usd", 0.0)
+            passed = fact_check_data.get("passed", False)
+
+            total_claims += claims
+            total_verified += verified
+            total_critical_issues += critical
+            total_high_severity += high_sev
+            total_cost += cost
+            accuracy_scores.append(accuracy)
+
+            if passed:
+                pass_count += 1
+
+            # Accuracy distribution
+            if accuracy >= 0.95:
+                accuracy_distribution["excellent"] += 1
+            elif accuracy >= 0.90:
+                accuracy_distribution["good"] += 1
+            elif accuracy >= 0.80:
+                accuracy_distribution["acceptable"] += 1
+            else:
+                accuracy_distribution["poor"] += 1
+
+            # Category stats
+            by_category = fact_check_data.get("by_category", {})
+            for category, stats in by_category.items():
+                if category not in category_stats:
+                    category_stats[category] = {"verified": 0, "unverified": 0}
+                category_stats[category]["verified"] += stats.get("verified", 0)
+                category_stats[category]["unverified"] += stats.get("unverified", 0)
+
+        # Calculate overall accuracy
+        overall_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 0.0
+
+        # Pass rate
+        pass_rate = (pass_count / total_chapters) if total_chapters > 0 else 0.0
+
+        return {
+            "success": True,
+            "overview": {
+                "total_chapters_checked": total_chapters,
+                "chapters_passed": pass_count,
+                "chapters_failed": total_chapters - pass_count,
+                "pass_rate": pass_rate,
+                "overall_accuracy": overall_accuracy,
+                "overall_accuracy_percentage": overall_accuracy * 100,
+                "total_claims": total_claims,
+                "verified_claims": total_verified,
+                "unverified_claims": total_claims - total_verified,
+                "verification_rate": (total_verified / total_claims) if total_claims > 0 else 0.0,
+                "critical_issues_total": total_critical_issues,
+                "high_severity_claims_total": total_high_severity,
+                "total_cost_usd": total_cost,
+                "average_cost_per_chapter": total_cost / total_chapters if total_chapters > 0 else 0.0
+            },
+            "accuracy_distribution": accuracy_distribution,
+            "by_category": category_stats,
+            "quality_grade": _get_accuracy_grade(overall_accuracy),
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get fact-checking overview: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get fact-checking overview: {str(e)}")
+
+
+@router.get("/fact-checking/chapter/{chapter_id}")
+async def get_chapter_fact_check_details(
+    chapter_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed fact-checking results for a specific chapter
+
+    Returns:
+    - Section-by-section fact-check results
+    - Individual claim verifications
+    - Critical issues list
+    - Recommendations
+
+    Phase 3: GPT-4o structured fact-checking details
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.database.models import Chapter
+
+        chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+
+        if not chapter:
+            raise HTTPException(status_code=404, detail=f"Chapter {chapter_id} not found")
+
+        if not chapter.fact_checked or not chapter.stage_10_fact_check:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chapter {chapter_id} has not been fact-checked"
+            )
+
+        fact_check_data = chapter.stage_10_fact_check
+
+        return {
+            "success": True,
+            "chapter_id": str(chapter.id),
+            "chapter_title": chapter.title,
+            "fact_check_data": fact_check_data,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get chapter fact-check details: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get fact-check details: {str(e)}")
+
+
+def _get_accuracy_grade(accuracy: float) -> str:
+    """Convert accuracy score to letter grade"""
+    if accuracy >= 0.95:
+        return "A (Excellent)"
+    elif accuracy >= 0.90:
+        return "B (Good)"
+    elif accuracy >= 0.80:
+        return "C (Acceptable)"
+    elif accuracy >= 0.70:
+        return "D (Needs Improvement)"
+    else:
+        return "F (Poor - Requires Major Revision)"
+
+
 # ==================== Health Check ====================
 
 @router.get("/health")
@@ -831,6 +1163,8 @@ async def health_check():
             "search_analytics",
             "export_analytics",
             "system_health",
-            "trend_analysis"
+            "trend_analysis",
+            "cache_analytics",  # Phase 2: Added cache analytics
+            "fact_checking_analytics"  # Phase 3: Added fact-checking analytics
         ]
     }

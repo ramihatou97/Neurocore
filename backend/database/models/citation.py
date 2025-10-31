@@ -108,7 +108,7 @@ class Citation(Base, UUIDMixin, TimestampMixin):
 
     pdf: Mapped["PDF"] = relationship(
         "PDF",
-        back_populates="citations"
+        back_populates="citation_records"
     )
 
     def __repr__(self) -> str:

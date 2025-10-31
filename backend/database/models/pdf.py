@@ -3,9 +3,10 @@ PDF model for uploaded research papers and textbooks
 Part of Process A: Background PDF Indexation
 """
 
-from sqlalchemy import String, Integer, BigInteger, Boolean, DateTime, Text, ARRAY
+from sqlalchemy import String, Integer, BigInteger, Boolean, DateTime, Text, ARRAY, Numeric
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from backend.database.base import Base, UUIDMixin, TimestampMixin
 
@@ -122,6 +123,33 @@ class PDF(Base, UUIDMixin, TimestampMixin):
         comment="Whether vector embeddings generated"
     )
 
+    # Extracted content
+    extracted_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Full extracted text from PDF"
+    )
+
+    # Citations extracted from PDF
+    citations: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Extracted citations as JSON"
+    )
+
+    # Processing timestamps
+    processing_started_at: Mapped[Optional[float]] = mapped_column(
+        Numeric,
+        nullable=True,
+        comment="Unix timestamp when processing started"
+    )
+
+    processing_completed_at: Mapped[Optional[float]] = mapped_column(
+        Numeric,
+        nullable=True,
+        comment="Unix timestamp when processing completed"
+    )
+
     # Timestamps
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -145,7 +173,7 @@ class PDF(Base, UUIDMixin, TimestampMixin):
         lazy="selectin"
     )
 
-    citations: Mapped[List["Citation"]] = relationship(
+    citation_records: Mapped[List["Citation"]] = relationship(
         "Citation",
         back_populates="pdf",
         cascade="all, delete-orphan",
@@ -177,7 +205,7 @@ class PDF(Base, UUIDMixin, TimestampMixin):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "total_images": len(self.images) if self.images else 0,
-            "total_citations": len(self.citations) if self.citations else 0
+            "total_citations": len(self.citation_records) if self.citation_records else 0
         }
 
     def is_fully_indexed(self) -> bool:

@@ -44,7 +44,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1';
 
 const HIGHLIGHT_COLORS = [
   { name: 'yellow', value: '#fff59d' },
@@ -548,6 +548,7 @@ const AnnotationPanel = ({ contentType, contentId, selectedText, selectionPositi
               </Typography>
 
               <Typography variant="caption" color="text.secondary">
+                {annotation.created_by && `${annotation.created_by} • `}
                 {new Date(annotation.created_at).toLocaleString()}
                 {annotation.reply_count > 0 && ` • ${annotation.reply_count} replies`}
                 {annotation.reaction_count > 0 && ` • ${annotation.reaction_count} reactions`}

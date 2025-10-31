@@ -226,6 +226,90 @@ class WebSocketEmitter:
         except Exception as e:
             logger.error(f"Failed to emit PDF processing event: {str(e)}")
 
+    @staticmethod
+    async def emit_section_generated(
+        chapter_id: str,
+        section_number: int,
+        section_title: str,
+        section_content: str,
+        total_sections: int
+    ):
+        """
+        Emit section generated event during chapter generation
+
+        Args:
+            chapter_id: Chapter UUID
+            section_number: Section index (0-based)
+            section_title: Section title
+            section_content: Generated HTML content
+            total_sections: Total number of sections
+        """
+        try:
+            from backend.utils.events import WebSocketEvent
+
+            progress_percent = int((section_number / total_sections) * 100)
+
+            event = WebSocketEvent.create(
+                EventType.SECTION_GENERATED,
+                {
+                    "chapter_id": chapter_id,
+                    "section_number": section_number,
+                    "section_title": section_title,
+                    "section_content": section_content,
+                    "total_sections": total_sections,
+                    "progress_percent": progress_percent
+                }
+            )
+
+            room_id = f"chapter:{chapter_id}"
+            await manager.send_to_room(event, room_id)
+
+            logger.debug(f"Emitted section generated: {chapter_id} - Section {section_number}")
+
+        except Exception as e:
+            logger.error(f"Failed to emit section generated: {str(e)}")
+
+    @staticmethod
+    async def emit_section_regenerated(
+        chapter_id: str,
+        section_number: int,
+        section_title: str,
+        new_content: str,
+        cost_usd: float
+    ):
+        """
+        Emit section regenerated event after selective regeneration
+
+        Args:
+            chapter_id: Chapter UUID
+            section_number: Section index (0-based)
+            section_title: Section title
+            new_content: Regenerated HTML content
+            cost_usd: Cost of regeneration
+        """
+        try:
+            from backend.utils.events import WebSocketEvent
+
+            event = WebSocketEvent.create(
+                EventType.SECTION_REGENERATED,
+                {
+                    "chapter_id": chapter_id,
+                    "section_number": section_number,
+                    "section_title": section_title,
+                    "new_content": new_content,
+                    "cost_usd": cost_usd,
+                    "message": f"Section {section_number} regenerated successfully"
+                }
+            )
+
+            room_id = f"chapter:{chapter_id}"
+            await manager.send_to_room(event, room_id)
+
+            logger.info(f"Emitted section regenerated: {chapter_id} - Section {section_number}, cost: ${cost_usd:.4f}")
+
+        except Exception as e:
+            logger.error(f"Failed to emit section regenerated: {str(e)}")
+
 
 # Singleton instance
 emitter = WebSocketEmitter()

@@ -251,6 +251,7 @@ class PDFService:
 
             total_text_length = 0
             total_words = 0
+            all_text = []
 
             # Extract text page by page
             for page_num in range(len(doc)):
@@ -261,17 +262,18 @@ class PDFService:
                 # For better layout: page.get_text("blocks") or page.get_text("dict")
 
                 if text:
+                    all_text.append(text)
                     total_text_length += len(text)
                     total_words += len(text.split())
 
-                    # Store page text in JSONB (can be indexed/searched later)
-                    # For now, we'll just track statistics
-                    # In a full implementation, store page text in separate table
-
             doc.close()
+
+            # Combine all text
+            full_text = "\n\n".join(all_text)
 
             # Update PDF record
             pdf.text_extracted = True
+            pdf.extracted_text = full_text  # Store the actual extracted text
             pdf.total_text_length = total_text_length
             pdf.total_words = total_words
             pdf.indexing_status = "text_extracted"
@@ -529,3 +531,24 @@ class PDFService:
         ).all()
 
         return images
+
+    def _extract_citations_from_text(self, text: str) -> list:
+        """
+        Extract citations from PDF text (placeholder implementation)
+
+        Args:
+            text: Extracted PDF text
+
+        Returns:
+            List of citation dictionaries
+
+        Note:
+            This is a placeholder. Full implementation would use regex patterns
+            or NLP to identify citation formats (APA, MLA, Chicago, etc.)
+        """
+        # TODO: Implement proper citation extraction using:
+        # - Regex patterns for common citation formats
+        # - NLP-based reference detection
+        # - DOI/PMID extraction
+        # For now, return empty list to allow pipeline to complete
+        return []

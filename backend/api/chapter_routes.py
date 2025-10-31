@@ -37,18 +37,18 @@ class ChapterResponse(BaseModel):
     """Response model for chapter information"""
     id: str
     title: str
-    chapter_type: Optional[str]
+    chapter_type: Optional[str] = None
     generation_status: str
     author_id: str
-    version: Optional[str]
+    version: Optional[str] = None
     is_current_version: bool
-    depth_score: Optional[float]
-    coverage_score: Optional[float]
-    evidence_score: Optional[float]
-    currency_score: Optional[float]
-    total_sections: Optional[int]
-    total_words: Optional[int]
-    generation_cost_usd: Optional[float]
+    depth_score: Optional[float] = None
+    coverage_score: Optional[float] = None
+    evidence_score: Optional[float] = None
+    currency_score: Optional[float] = None
+    total_sections: Optional[int] = None
+    total_words: Optional[int] = None
+    generation_cost_usd: Optional[float] = None
     created_at: str
     updated_at: str
 
@@ -96,6 +96,133 @@ class MessageResponse(BaseModel):
     """Generic message response"""
     message: str
     details: Optional[dict] = None
+
+
+class SectionEditRequest(BaseModel):
+    """Request model for editing a section"""
+    content: str = Field(..., min_length=10, description="Updated section content (HTML)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "content": "<h2>Updated Section</h2><p>New content here...</p>"
+            }
+        }
+
+
+class SectionRegenerateRequest(BaseModel):
+    """Request model for regenerating a section"""
+    additional_sources: Optional[List[str]] = Field(None, description="Additional PDF IDs to use as sources")
+    instructions: Optional[str] = Field(None, description="Special instructions for regeneration")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "additional_sources": ["123e4567-e89b-12d3-a456-426614174000"],
+                "instructions": "Focus more on surgical technique and less on pathophysiology"
+            }
+        }
+
+
+class SectionResponse(BaseModel):
+    """Response model for section operations"""
+    chapter_id: str
+    section_number: int
+    updated_content: Optional[str] = None
+    regeneration_status: Optional[str] = None
+    version: str
+    cost_usd: Optional[float] = None
+    updated_at: str
+
+
+class AddSourcesRequest(BaseModel):
+    """Request model for adding research sources"""
+    pdf_ids: Optional[List[str]] = Field(None, description="Internal PDF IDs")
+    external_dois: Optional[List[str]] = Field(None, description="External DOIs")
+    pubmed_ids: Optional[List[str]] = Field(None, description="PubMed IDs")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "pdf_ids": ["123e4567-e89b-12d3-a456-426614174000"],
+                "external_dois": ["10.1234/example"],
+                "pubmed_ids": ["12345678"]
+            }
+        }
+
+
+class AddSourcesResponse(BaseModel):
+    """Response model for adding sources"""
+    chapter_id: str
+    sources_added: int
+    total_sources: int
+
+
+class GapAnalysisResponse(BaseModel):
+    """Response model for gap analysis trigger"""
+    success: bool
+    chapter_id: str
+    gap_analysis: dict
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "chapter_id": "123e4567-e89b-12d3-a456-426614174000",
+                "gap_analysis": {
+                    "total_gaps": 5,
+                    "critical_gaps": 1,
+                    "completeness_score": 0.82,
+                    "requires_revision": False,
+                    "analyzed_at": "2025-10-29T10:00:00Z"
+                }
+            }
+        }
+
+
+class GapAnalysisSummaryResponse(BaseModel):
+    """Response model for gap analysis summary"""
+    chapter_id: str
+    chapter_title: str
+    analyzed_at: Optional[str] = None
+    total_gaps: int
+    severity_distribution: dict
+    completeness_score: float
+    requires_revision: bool
+    top_recommendations: List[dict]
+    gap_categories_summary: dict
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "chapter_id": "123e4567-e89b-12d3-a456-426614174000",
+                "chapter_title": "Glioblastoma Management",
+                "analyzed_at": "2025-10-29T10:00:00Z",
+                "total_gaps": 8,
+                "severity_distribution": {
+                    "critical": 1,
+                    "high": 2,
+                    "medium": 3,
+                    "low": 2
+                },
+                "completeness_score": 0.82,
+                "requires_revision": False,
+                "top_recommendations": [
+                    {
+                        "priority": 1,
+                        "action": "address_critical_gaps",
+                        "description": "Add missing complications section"
+                    }
+                ],
+                "gap_categories_summary": {
+                    "content_completeness": 2,
+                    "source_coverage": 3,
+                    "section_balance": 1,
+                    "temporal_coverage": 1,
+                    "critical_information": 1
+                }
+            }
+        }
 
 
 # ==================== Health Check (must be before dynamic routes) ====================
@@ -377,6 +504,270 @@ async def regenerate_chapter(
     logger.info(f"Chapter regenerated by user {current_user.email}: {new_chapter.id}")
 
     return ChapterResponse(**new_chapter.to_dict())
+
+
+@router.patch(
+    "/{chapter_id}/sections/{section_number}",
+    response_model=SectionResponse,
+    summary="Edit section content",
+    description="""
+    Edit a specific section's content without regenerating the entire chapter.
+
+    This creates a new version automatically for version control.
+    Cost savings: ~84% compared to full regeneration ($0.08 vs $0.50)
+    """
+)
+async def edit_section(
+    chapter_id: str,
+    section_number: int,
+    request: SectionEditRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> SectionResponse:
+    """
+    Edit section content
+
+    Requires authentication.
+    """
+    chapter_service = ChapterService(db)
+
+    chapter = chapter_service.edit_section(
+        chapter_id=chapter_id,
+        section_number=section_number,
+        new_content=request.content,
+        user=current_user
+    )
+
+    logger.info(f"Section {section_number} edited in chapter {chapter_id} by user {current_user.email}")
+
+    return SectionResponse(
+        chapter_id=str(chapter.id),
+        section_number=section_number,
+        updated_content=request.content,
+        version=chapter.version,
+        updated_at=chapter.updated_at.isoformat()
+    )
+
+
+@router.post(
+    "/{chapter_id}/sections/{section_number}/regenerate",
+    response_model=SectionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Regenerate single section",
+    description="""
+    Regenerate a specific section using AI while preserving the rest of the chapter.
+
+    This operation:
+    - Reuses existing research data (stages 3-5)
+    - Only re-runs stage 6 for the target section
+    - Creates a new version automatically
+    - Cost: ~$0.08 (84% savings vs full regeneration)
+    - Time: ~10-20 seconds
+
+    Returns 202 Accepted and emits WebSocket event when complete.
+    """
+)
+async def regenerate_section(
+    chapter_id: str,
+    section_number: int,
+    request: SectionRegenerateRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> SectionResponse:
+    """
+    Regenerate single section with AI
+
+    Requires authentication.
+    """
+    chapter_service = ChapterService(db)
+
+    result = await chapter_service.regenerate_section(
+        chapter_id=chapter_id,
+        section_number=section_number,
+        additional_sources=request.additional_sources,
+        instructions=request.instructions,
+        user=current_user
+    )
+
+    logger.info(f"Section {section_number} regenerated in chapter {chapter_id} by user {current_user.email}")
+
+    return SectionResponse(
+        chapter_id=str(result["chapter_id"]),
+        section_number=section_number,
+        regeneration_status="completed",
+        updated_content=result.get("new_content"),
+        version=result["version"],
+        cost_usd=result.get("cost_usd"),
+        updated_at=result["updated_at"]
+    )
+
+
+@router.post(
+    "/{chapter_id}/sources",
+    response_model=AddSourcesResponse,
+    summary="Add research sources to chapter",
+    description="""
+    Add additional research sources to a chapter for future regenerations.
+
+    Sources can be:
+    - Internal PDFs from your library (by PDF ID)
+    - External papers (by DOI)
+    - PubMed articles (by PMID)
+
+    These sources will be available when regenerating sections or the entire chapter.
+    """
+)
+async def add_sources(
+    chapter_id: str,
+    request: AddSourcesRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> AddSourcesResponse:
+    """
+    Add research sources to chapter
+
+    Requires authentication.
+    """
+    chapter_service = ChapterService(db)
+
+    result = chapter_service.add_sources(
+        chapter_id=chapter_id,
+        pdf_ids=request.pdf_ids,
+        external_dois=request.external_dois,
+        pubmed_ids=request.pubmed_ids
+    )
+
+    logger.info(f"Added {result['sources_added']} sources to chapter {chapter_id} by user {current_user.email}")
+
+    return AddSourcesResponse(
+        chapter_id=chapter_id,
+        sources_added=result["sources_added"],
+        total_sources=result["total_sources"]
+    )
+
+
+@router.post(
+    "/{chapter_id}/gap-analysis",
+    response_model=GapAnalysisResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Run gap analysis on chapter",
+    description="""
+    Run comprehensive Phase 2 Week 5 gap analysis on a completed chapter.
+
+    This operation:
+    - Analyzes content completeness against Stage 2 context
+    - Identifies unused high-value research sources
+    - Detects section balance issues
+    - Checks temporal coverage (recent literature)
+    - Uses AI to identify missing critical information
+    - Generates actionable recommendations
+    - Calculates overall completeness score (0-1)
+
+    Results are stored in the chapter for future retrieval.
+
+    Only the chapter author or admins can run gap analysis.
+    Chapter must be in 'completed' status.
+
+    Cost: ~$0.03-0.05 per analysis
+    Time: ~2-10 seconds depending on chapter size
+    """
+)
+async def run_gap_analysis(
+    chapter_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> GapAnalysisResponse:
+    """
+    Trigger gap analysis for a chapter
+
+    Requires authentication (author or admin).
+    """
+    chapter_service = ChapterService(db)
+
+    result = await chapter_service.run_gap_analysis(
+        chapter_id=chapter_id,
+        user=current_user
+    )
+
+    logger.info(
+        f"Gap analysis triggered for chapter {chapter_id} by user {current_user.email}: "
+        f"{result['gap_analysis']['total_gaps']} gaps found"
+    )
+
+    return GapAnalysisResponse(**result)
+
+
+@router.get(
+    "/{chapter_id}/gap-analysis",
+    response_model=dict,
+    summary="Get full gap analysis results",
+    description="""
+    Retrieve the complete gap analysis results for a chapter.
+
+    Returns all identified gaps across 5 dimensions:
+    - Content completeness
+    - Source coverage
+    - Section balance
+    - Temporal coverage
+    - Critical information
+
+    Includes detailed recommendations and severity distribution.
+
+    Returns 404 if no gap analysis has been run for this chapter.
+    """
+)
+async def get_gap_analysis(
+    chapter_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get full gap analysis results
+
+    Requires authentication.
+    """
+    chapter_service = ChapterService(db)
+
+    gap_analysis = chapter_service.get_gap_analysis(chapter_id)
+
+    return gap_analysis
+
+
+@router.get(
+    "/{chapter_id}/gap-analysis/summary",
+    response_model=GapAnalysisSummaryResponse,
+    summary="Get gap analysis summary",
+    description="""
+    Retrieve a concise summary of the gap analysis results.
+
+    Returns:
+    - Total gaps and severity distribution
+    - Completeness score
+    - Whether revision is required
+    - Top 3 recommendations
+    - Gap counts by category
+
+    This endpoint is optimized for UI display and provides a simplified view
+    of the full gap analysis results.
+
+    Returns 404 if no gap analysis has been run for this chapter.
+    """
+)
+async def get_gap_analysis_summary(
+    chapter_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> GapAnalysisSummaryResponse:
+    """
+    Get concise gap analysis summary
+
+    Requires authentication.
+    """
+    chapter_service = ChapterService(db)
+
+    summary = chapter_service.get_gap_analysis_summary(chapter_id)
+
+    return GapAnalysisSummaryResponse(**summary)
 
 
 @router.delete(

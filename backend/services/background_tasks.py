@@ -74,17 +74,19 @@ def process_pdf_async(self, pdf_id: str) -> Dict[str, Any]:
         if not pdf:
             raise ValueError(f"PDF not found: {pdf_id}")
 
-        pdf.extraction_status = "processing"
+        pdf.indexing_status = "processing"
         pdf.processing_started_at = time.time()
         self.db_session.commit()
 
         # Execute pipeline as chain
+        # Use .si() (immutable signature) to prevent Celery from passing previous results as arguments
         workflow = chain(
-            extract_text_task.s(pdf_id),
-            extract_images_task.s(pdf_id),
-            analyze_images_task.s(pdf_id),
-            generate_embeddings_task.s(pdf_id),
-            extract_citations_task.s(pdf_id)
+            extract_text_task.si(pdf_id),
+            extract_images_task.si(pdf_id),
+            analyze_images_task.si(pdf_id),
+            generate_embeddings_task.si(pdf_id),
+            extract_citations_task.si(pdf_id),
+            finalize_pdf_processing.si(pdf_id)
         )
 
         result = workflow.apply_async()
@@ -104,8 +106,7 @@ def process_pdf_async(self, pdf_id: str) -> Dict[str, Any]:
         try:
             pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
             if pdf:
-                pdf.extraction_status = "failed"
-                pdf.extraction_error = str(e)
+                pdf.indexing_status = "failed"
                 self.db_session.commit()
         except Exception as db_error:
             logger.error(f"Failed to update PDF status: {str(db_error)}")
@@ -134,20 +135,10 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
     try:
         pdf_service = PDFService(self.db_session)
 
-        # Get PDF
-        pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
-        if not pdf:
-            raise ValueError(f"PDF not found: {pdf_id}")
+        # Extract text using PDFService high-level method
+        result = pdf_service.extract_text(pdf_id)
 
-        # Extract text (synchronous method from PDFService)
-        result = pdf_service._extract_text_from_pdf(pdf.file_path)
-
-        # Update PDF
-        pdf.extracted_text = result["text"]
-        pdf.page_count = result["page_count"]
-        self.db_session.commit()
-
-        logger.info(f"Text extraction complete for {pdf_id}: {result['page_count']} pages")
+        logger.info(f"Text extraction complete for {pdf_id}: {result.get('total_pages', 0)} pages, {result.get('total_words', 0)} words")
 
         # Emit WebSocket event
         import asyncio
@@ -155,14 +146,14 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
             pdf_id,
             EventType.PDF_TEXT_EXTRACTED,
             "text_extraction",
-            f"Extracted text from {result['page_count']} pages",
+            f"Extracted text from {result.get('total_pages', 0)} pages",
             progress=20
         ))
 
         return {
             "pdf_id": pdf_id,
-            "page_count": result["page_count"],
-            "text_length": len(result["text"]),
+            "page_count": result.get("total_pages", 0),
+            "text_length": result.get("total_text_length", 0),
             "status": "completed"
         }
 
@@ -191,33 +182,24 @@ def extract_images_task(self, pdf_id: str) -> Dict[str, Any]:
     try:
         pdf_service = PDFService(self.db_session)
 
-        # Get PDF
-        pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
-        if not pdf:
-            raise ValueError(f"PDF not found: {pdf_id}")
+        # Extract images using PDFService high-level method
+        result = pdf_service.extract_images(pdf_id)
 
-        # Extract images (synchronous method from PDFService)
-        images = pdf_service._extract_images_from_pdf(pdf.file_path, str(pdf.id))
+        logger.info(f"Image extraction complete for {pdf_id}: {result.get('total_images', 0)} images")
 
-        # Store images in database
-        for img_data in images:
-            image = Image(
-                pdf_id=pdf.id,
-                page_number=img_data["page"],
-                file_path=img_data["path"],
-                thumbnail_path=img_data["thumbnail"],
-                width=img_data["width"],
-                height=img_data["height"]
-            )
-            self.db_session.add(image)
-
-        self.db_session.commit()
-
-        logger.info(f"Image extraction complete for {pdf_id}: {len(images)} images")
+        # Emit WebSocket event
+        import asyncio
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_IMAGES_EXTRACTED,
+            "image_extraction",
+            f"Extracted {result.get('total_images', 0)} images",
+            progress=40
+        ))
 
         return {
             "pdf_id": pdf_id,
-            "image_count": len(images),
+            "image_count": result.get('total_images', 0),
             "status": "completed"
         }
 
@@ -277,7 +259,7 @@ def analyze_images_task(self, pdf_id: str) -> Dict[str, Any]:
         # Update image records with analysis
         for image, analysis in zip(images, analyses):
             if analysis.get("analysis"):
-                image.description = self._build_description(analysis["analysis"])
+                image.ai_description = self._build_description(analysis["analysis"])
                 image.analysis_metadata = analysis["analysis"]
                 image.analysis_confidence = analysis.get("confidence_score", 0.0)
 
@@ -285,10 +267,20 @@ def analyze_images_task(self, pdf_id: str) -> Dict[str, Any]:
 
         logger.info(f"Image analysis complete for {pdf_id}: {len(analyses)} images")
 
+        # Emit WebSocket event
+        analyzed_count = sum(1 for a in analyses if a.get("analysis"))
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_IMAGES_ANALYZED,
+            "image_analysis",
+            f"Analyzed {analyzed_count} images with Claude Vision",
+            progress=60
+        ))
+
         return {
             "pdf_id": pdf_id,
             "image_count": len(analyses),
-            "analyzed_count": sum(1 for a in analyses if a.get("analysis")),
+            "analyzed_count": analyzed_count,
             "status": "completed"
         }
 
@@ -347,7 +339,7 @@ def generate_embeddings_task(self, pdf_id: str) -> Dict[str, Any]:
         # Generate image embeddings
         images = self.db_session.query(Image).filter(
             Image.pdf_id == pdf_id,
-            Image.description.isnot(None)
+            Image.ai_description.isnot(None)
         ).all()
 
         image_count = 0
@@ -356,7 +348,7 @@ def generate_embeddings_task(self, pdf_id: str) -> Dict[str, Any]:
                 asyncio.run(
                     embedding_service.generate_image_embeddings(
                         str(image.id),
-                        image.description
+                        image.ai_description
                     )
                 )
                 image_count += 1
@@ -364,6 +356,21 @@ def generate_embeddings_task(self, pdf_id: str) -> Dict[str, Any]:
                 logger.error(f"Failed to generate embedding for image {image.id}: {str(img_error)}")
 
         logger.info(f"Embedding generation complete for {pdf_id}: {image_count} images")
+
+        # Update PDF record
+        pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
+        if pdf:
+            pdf.embeddings_generated = True
+            self.db_session.commit()
+
+        # Emit WebSocket event
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_EMBEDDINGS_GENERATED,
+            "embedding_generation",
+            f"Generated embeddings for PDF and {image_count} images",
+            progress=80
+        ))
 
         return {
             "pdf_id": pdf_id,
@@ -419,6 +426,16 @@ def extract_citations_task(self, pdf_id: str) -> Dict[str, Any]:
 
         logger.info(f"Citation extraction complete for {pdf_id}: {len(citations)} citations")
 
+        # Emit WebSocket event
+        import asyncio
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_PROCESSING_COMPLETED,  # Using generic completed event
+            "citation_extraction",
+            f"Extracted {len(citations)} citations",
+            progress=90
+        ))
+
         return {
             "pdf_id": pdf_id,
             "citation_count": len(citations),
@@ -435,12 +452,11 @@ def extract_citations_task(self, pdf_id: str) -> Dict[str, Any]:
     base=DatabaseTask,
     name="backend.services.background_tasks.finalize_pdf_processing"
 )
-def finalize_pdf_processing(self, results: List[Dict[str, Any]], pdf_id: str) -> Dict[str, Any]:
+def finalize_pdf_processing(self, pdf_id: str) -> Dict[str, Any]:
     """
     Finalize PDF processing after all stages complete
 
     Args:
-        results: Results from all processing stages
         pdf_id: PDF document ID
 
     Returns:
@@ -455,12 +471,12 @@ def finalize_pdf_processing(self, results: List[Dict[str, Any]], pdf_id: str) ->
             raise ValueError(f"PDF not found: {pdf_id}")
 
         # Update status
-        pdf.extraction_status = "completed"
+        pdf.indexing_status = "completed"
         pdf.processing_completed_at = time.time()
 
         # Calculate processing time
         if pdf.processing_started_at:
-            processing_time = pdf.processing_completed_at - pdf.processing_started_at
+            processing_time = float(pdf.processing_completed_at) - float(pdf.processing_started_at)
             logger.info(f"PDF {pdf_id} processed in {processing_time:.2f} seconds")
 
         self.db_session.commit()
@@ -479,6 +495,17 @@ def finalize_pdf_processing(self, results: List[Dict[str, Any]], pdf_id: str) ->
         }
 
         logger.info(f"PDF processing finalized for {pdf_id}")
+
+        # Emit final WebSocket event
+        import asyncio
+        asyncio.run(emitter.emit_pdf_processing_event(
+            pdf_id,
+            EventType.PDF_PROCESSING_COMPLETED,
+            "finalization",
+            "PDF processing completed successfully",
+            progress=100
+        ))
+
         return summary
 
     except Exception as e:
@@ -488,8 +515,7 @@ def finalize_pdf_processing(self, results: List[Dict[str, Any]], pdf_id: str) ->
         try:
             pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
             if pdf:
-                pdf.extraction_status = "failed"
-                pdf.extraction_error = str(e)
+                pdf.indexing_status = "failed"
                 self.db_session.commit()
         except Exception as db_error:
             logger.error(f"Failed to update PDF status: {str(db_error)}")

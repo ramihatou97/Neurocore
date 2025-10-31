@@ -16,11 +16,10 @@ from backend.config import settings
 from backend.main import app
 
 
-# Test database URL (override for local testing outside Docker)
-# Replace Docker container hostname with localhost
+# Test database URL - use DB_HOST from settings (postgres in Docker, localhost outside)
 TEST_DATABASE_URL = (
     f"postgresql://{settings.DB_USER}:{settings.DB_PASSWORD}@"
-    f"localhost:{settings.DB_PORT}/{settings.DB_NAME}"
+    f"{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
 )
 
 

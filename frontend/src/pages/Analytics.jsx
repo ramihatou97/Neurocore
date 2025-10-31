@@ -42,7 +42,7 @@ import axios from 'axios';
 import MetricCard from '../components/MetricCard';
 import ActivityChart from '../components/ActivityChart';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1';
 
 function TabPanel({ children, value, index, ...other }) {
   return (

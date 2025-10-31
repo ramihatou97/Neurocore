@@ -180,6 +180,75 @@ const chaptersAPI = {
     });
     return response.data;
   },
+
+  /**
+   * Edit section content
+   * PATCH /chapters/:id/sections/:sectionNumber
+   */
+  editSection: async (chapterId, sectionNumber, sectionData) => {
+    const response = await apiClient.patch(
+      `/chapters/${chapterId}/sections/${sectionNumber}`,
+      sectionData
+    );
+    return response.data;
+  },
+
+  /**
+   * Regenerate single section
+   * POST /chapters/:id/sections/:sectionNumber/regenerate
+   */
+  regenerateSection: async (chapterId, sectionNumber, options = {}) => {
+    const response = await apiClient.post(
+      `/chapters/${chapterId}/sections/${sectionNumber}/regenerate`,
+      options
+    );
+    return response.data;
+  },
+
+  /**
+   * Add research sources to chapter
+   * POST /chapters/:id/sources
+   */
+  addSources: async (chapterId, sources) => {
+    const response = await apiClient.post(
+      `/chapters/${chapterId}/sources`,
+      sources
+    );
+    return response.data;
+  },
+
+  /**
+   * Run gap analysis on chapter
+   * POST /chapters/:id/gap-analysis
+   */
+  runGapAnalysis: async (chapterId) => {
+    const response = await apiClient.post(
+      `/chapters/${chapterId}/gap-analysis`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get full gap analysis results
+   * GET /chapters/:id/gap-analysis
+   */
+  getGapAnalysis: async (chapterId) => {
+    const response = await apiClient.get(
+      `/chapters/${chapterId}/gap-analysis`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get gap analysis summary
+   * GET /chapters/:id/gap-analysis/summary
+   */
+  getGapAnalysisSummary: async (chapterId) => {
+    const response = await apiClient.get(
+      `/chapters/${chapterId}/gap-analysis/summary`
+    );
+    return response.data;
+  },
 };
 
 export default chaptersAPI;

@@ -29,6 +29,7 @@ celery_app.conf.update(
         "backend.services.background_tasks.analyze_images_task": {"queue": "images"},
         "backend.services.background_tasks.generate_embeddings_task": {"queue": "embeddings"},
         "backend.services.background_tasks.extract_citations_task": {"queue": "default"},
+        "backend.services.background_tasks.finalize_pdf_processing": {"queue": "default"},
     },
 
     # Queue configuration
@@ -72,6 +73,14 @@ celery_app.conf.update(
 
 # Task autodiscovery
 celery_app.autodiscover_tasks(["backend.services"])
+
+# IMPORTANT: Explicitly import background_tasks to register all tasks
+# This ensures tasks are available when workers start
+try:
+    from backend.services import background_tasks
+    logger.info(f"Background tasks module imported successfully")
+except ImportError as e:
+    logger.error(f"Failed to import background_tasks: {e}")
 
 logger.info("Celery app configured successfully")
 
