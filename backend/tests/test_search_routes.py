@@ -10,12 +10,14 @@ from datetime import datetime
 
 from backend.main import app
 from backend.database.models import User
+from backend.utils.dependencies import get_current_user
 
 
 @pytest.fixture
 def client():
-    """Test client"""
-    return TestClient(app)
+    """Test client with proper lifecycle management for httpx 0.28+"""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -24,8 +26,10 @@ def mock_user():
     return User(
         id="user-123",
         email="test@example.com",
-        name="Test User",
-        role="researcher"
+        hashed_password="$2b$12$mock_hash_for_testing",  # Required field
+        full_name="Test User",
+        is_admin=False,  # Fixed: no 'role' field, use is_admin instead
+        is_active=True
     )
 
 
@@ -35,14 +39,25 @@ def auth_headers():
     return {"Authorization": "Bearer mock-token"}
 
 
+@pytest.fixture(autouse=True)
+def override_get_current_user(mock_user):
+    """Override get_current_user dependency for all tests in this module"""
+    def get_mock_user():
+        return mock_user
+
+    app.dependency_overrides[get_current_user] = get_mock_user
+    yield
+    # Clean up after test
+    app.dependency_overrides.clear()
+
+
 class TestUnifiedSearch:
     """Tests for /search endpoint"""
 
-    @patch('backend.api.search_routes.get_current_user')
     @patch('backend.api.search_routes.SearchService')
-    def test_unified_search_success(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_unified_search_success(self, mock_search_service, client, mock_user, auth_headers):
         """Test successful unified search"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         # Mock search service response
         mock_service_instance = Mock()
@@ -78,10 +93,9 @@ class TestUnifiedSearch:
         assert data["search_type"] == "hybrid"
         assert len(data["results"]) == 1
 
-    @patch('backend.api.search_routes.get_current_user')
-    def test_unified_search_empty_query(self, mock_get_user, client, mock_user, auth_headers):
+    def test_unified_search_empty_query(self, client, mock_user, auth_headers):
         """Test search with empty query"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         response = client.post(
             "/api/v1/search",
@@ -95,11 +109,11 @@ class TestUnifiedSearch:
         # Should fail validation
         assert response.status_code == 422
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_unified_search_with_filters(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_unified_search_with_filters(self, mock_search_service, client, mock_user, auth_headers):
         """Test search with filters"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.search_all.return_value = {
@@ -126,11 +140,11 @@ class TestUnifiedSearch:
         data = response.json()
         assert data["filters_applied"]["content_type"] == "pdf"
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_unified_search_pagination(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_unified_search_pagination(self, mock_search_service, client, mock_user, auth_headers):
         """Test search with pagination"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.search_all.return_value = {
@@ -170,11 +184,11 @@ class TestUnifiedSearch:
 class TestSearchSuggestions:
     """Tests for /search/suggestions endpoint"""
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_get_suggestions_success(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_get_suggestions_success(self, mock_search_service, client, mock_user, auth_headers):
         """Test successful suggestions retrieval"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.get_search_suggestions.return_value = [
@@ -195,11 +209,11 @@ class TestSearchSuggestions:
         assert len(data["suggestions"]) == 3
         assert data["count"] == 3
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_get_suggestions_no_results(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_get_suggestions_no_results(self, mock_search_service, client, mock_user, auth_headers):
         """Test suggestions with no results"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.get_search_suggestions.return_value = []
@@ -223,11 +237,11 @@ class TestSearchSuggestions:
 class TestRelatedContent:
     """Tests for /search/related endpoint"""
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_find_related_content_success(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_find_related_content_success(self, mock_search_service, client, mock_user, auth_headers):
         """Test successful related content search"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.find_related_content.return_value = [
@@ -253,11 +267,11 @@ class TestRelatedContent:
         assert len(data["related"]) == 2
         assert data["count"] == 2
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.SearchService')
-    def test_find_related_content_not_found(self, mock_search_service, mock_get_user, client, mock_user, auth_headers):
+    def test_find_related_content_not_found(self, mock_search_service, client, mock_user, auth_headers):
         """Test related content for non-existent source"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.find_related_content.side_effect = ValueError("Content not found")
@@ -293,11 +307,11 @@ class TestRelatedContent:
 class TestSemanticSearch:
     """Tests for semantic search endpoints"""
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.EmbeddingService')
-    def test_search_pdfs_semantic(self, mock_embedding_service, mock_get_user, client, mock_user, auth_headers):
+    def test_search_pdfs_semantic(self, mock_embedding_service, client, mock_user, auth_headers):
         """Test semantic PDF search"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.find_similar_pdfs.return_value = [
@@ -316,11 +330,11 @@ class TestSemanticSearch:
         assert len(data["results"]) == 1
         assert data["min_similarity"] == 0.7
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.EmbeddingService')
-    def test_search_images_semantic(self, mock_embedding_service, mock_get_user, client, mock_user, auth_headers):
+    def test_search_images_semantic(self, mock_embedding_service, client, mock_user, auth_headers):
         """Test semantic image search"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.find_similar_images.return_value = [
@@ -342,12 +356,12 @@ class TestSemanticSearch:
 class TestEmbeddingManagement:
     """Tests for embedding generation endpoints"""
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.EmbeddingService')
     @patch('backend.api.search_routes.get_db')
-    def test_generate_embeddings_pdf(self, mock_get_db, mock_embedding_service, mock_get_user, client, mock_user, auth_headers):
+    def test_generate_embeddings_pdf(self, mock_get_db, mock_embedding_service, client, mock_user, auth_headers):
         """Test generating embeddings for PDF"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         # Mock database
         from backend.database.models import PDF
@@ -379,11 +393,11 @@ class TestEmbeddingManagement:
         assert data["entity_id"] == "pdf-123"
         assert data["status"] == "generated"
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.get_db')
-    def test_generate_embeddings_already_exists(self, mock_get_db, mock_get_user, client, mock_user, auth_headers):
+    def test_generate_embeddings_already_exists(self, mock_get_db, client, mock_user, auth_headers):
         """Test generating embeddings when already exist"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         # Mock database with PDF that has embeddings
         from backend.database.models import PDF
@@ -406,11 +420,11 @@ class TestEmbeddingManagement:
         data = response.json()
         assert data["status"] == "already_exists"
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.get_db')
-    def test_generate_embeddings_not_found(self, mock_get_db, mock_get_user, client, mock_user, auth_headers):
+    def test_generate_embeddings_not_found(self, mock_get_db, client, mock_user, auth_headers):
         """Test generating embeddings for non-existent entity"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         # Mock database returning None
         mock_db = Mock()
@@ -429,11 +443,11 @@ class TestEmbeddingManagement:
 
         assert response.status_code == 404
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.EmbeddingService')
-    def test_batch_generate_pdf_embeddings(self, mock_embedding_service, mock_get_user, client, mock_user, auth_headers):
+    def test_batch_generate_pdf_embeddings(self, mock_embedding_service, client, mock_user, auth_headers):
         """Test batch embedding generation"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
         mock_service_instance.update_all_pdf_embeddings.return_value = {
@@ -458,11 +472,11 @@ class TestEmbeddingManagement:
 class TestSearchStatistics:
     """Tests for /search/stats endpoint"""
 
-    @patch('backend.api.search_routes.get_current_user')
+    
     @patch('backend.api.search_routes.get_db')
-    def test_get_search_statistics(self, mock_get_db, mock_get_user, client, mock_user, auth_headers):
+    def test_get_search_statistics(self, mock_get_db, client, mock_user, auth_headers):
         """Test retrieving search statistics"""
-        mock_get_user.return_value = mock_user
+        # Authentication handled by override_get_current_user fixture
 
         # Mock database queries
         mock_db = Mock()
