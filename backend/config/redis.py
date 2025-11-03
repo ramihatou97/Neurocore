@@ -269,6 +269,15 @@ class RedisManager:
             logger.error(f"Redis HDEL failed: {str(e)}")
             return 0
 
+    def hlen(self, name: str) -> int:
+        """Get number of fields in hash"""
+        try:
+            client = self.get_client()
+            return client.hlen(name)
+        except Exception as e:
+            logger.error(f"Redis HLEN failed: {str(e)}")
+            return 0
+
     # ==================== List Operations ====================
 
     def lpush(self, key: str, *values: Any, serialize: str = "json") -> int:
@@ -371,6 +380,83 @@ class RedisManager:
         except Exception as e:
             logger.error(f"Redis ZRANGE failed: {str(e)}")
             return []
+
+    def zrevrange(
+        self,
+        key: str,
+        start: int,
+        end: int,
+        withscores: bool = False,
+        deserialize: str = "json"
+    ) -> list:
+        """Get sorted set range in reverse order (highest to lowest score)"""
+        try:
+            client = self.get_client()
+            values = client.zrevrange(key, start, end, withscores=withscores)
+
+            if withscores:
+                return [
+                    (self._deserialize(v, method=deserialize), score)
+                    for v, score in values
+                ]
+            return [self._deserialize(v, method=deserialize) for v in values]
+
+        except Exception as e:
+            logger.error(f"Redis ZREVRANGE failed: {str(e)}")
+            return []
+
+    def zrangebyscore(
+        self,
+        key: str,
+        min_score: float,
+        max_score: float,
+        deserialize: str = "json"
+    ) -> list:
+        """Get sorted set members by score range"""
+        try:
+            client = self.get_client()
+            values = client.zrangebyscore(key, min_score, max_score)
+            return [self._deserialize(v, method=deserialize) for v in values]
+        except Exception as e:
+            logger.error(f"Redis ZRANGEBYSCORE failed: {str(e)}")
+            return []
+
+    def zcount(self, key: str, min_score: float, max_score: float) -> int:
+        """Count members in sorted set within score range"""
+        try:
+            client = self.get_client()
+            return client.zcount(key, min_score, max_score)
+        except Exception as e:
+            logger.error(f"Redis ZCOUNT failed: {str(e)}")
+            return 0
+
+    def zcard(self, key: str) -> int:
+        """Get number of members in sorted set"""
+        try:
+            client = self.get_client()
+            return client.zcard(key)
+        except Exception as e:
+            logger.error(f"Redis ZCARD failed: {str(e)}")
+            return 0
+
+    def zrem(self, key: str, *members: Any, serialize: str = "json") -> int:
+        """Remove members from sorted set"""
+        try:
+            client = self.get_client()
+            serialized = [self._serialize(m, method=serialize) for m in members]
+            return client.zrem(key, *serialized)
+        except Exception as e:
+            logger.error(f"Redis ZREM failed: {str(e)}")
+            return 0
+
+    def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
+        """Remove members from sorted set by score range"""
+        try:
+            client = self.get_client()
+            return client.zremrangebyscore(key, min_score, max_score)
+        except Exception as e:
+            logger.error(f"Redis ZREMRANGEBYSCORE failed: {str(e)}")
+            return 0
 
     # ==================== Pattern Matching ====================
 

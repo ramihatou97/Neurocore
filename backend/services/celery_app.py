@@ -30,6 +30,13 @@ celery_app.conf.update(
         "backend.services.background_tasks.generate_embeddings_task": {"queue": "embeddings"},
         "backend.services.background_tasks.extract_citations_task": {"queue": "default"},
         "backend.services.background_tasks.finalize_pdf_processing": {"queue": "default"},
+        # Chapter-level vector search tasks (Phase 5)
+        "backend.services.chapter_embedding_service.generate_chapter_embeddings": {"queue": "embeddings"},
+        "backend.services.chapter_embedding_service.generate_chunk_embeddings": {"queue": "embeddings"},
+        "backend.services.chapter_vector_search_service.check_for_duplicates": {"queue": "default"},
+        # AI title extraction tasks (Enhancement #2)
+        "backend.services.title_extraction_tasks.extract_title_from_cover": {"queue": "default"},
+        "backend.services.title_extraction_tasks.batch_extract_titles": {"queue": "default"},
     },
 
     # Queue configuration
@@ -74,13 +81,28 @@ celery_app.conf.update(
 # Task autodiscovery
 celery_app.autodiscover_tasks(["backend.services"])
 
-# IMPORTANT: Explicitly import background_tasks to register all tasks
+# IMPORTANT: Explicitly import task modules to register all tasks
 # This ensures tasks are available when workers start
 try:
     from backend.services import background_tasks
     logger.info(f"Background tasks module imported successfully")
 except ImportError as e:
     logger.error(f"Failed to import background_tasks: {e}")
+
+# Phase 5: Import chapter-level vector search tasks
+try:
+    from backend.services import chapter_embedding_service
+    from backend.services import chapter_vector_search_service
+    logger.info(f"Chapter-level vector search tasks imported successfully")
+except ImportError as e:
+    logger.error(f"Failed to import chapter-level tasks: {e}")
+
+# Enhancement #2: Import AI title extraction tasks
+try:
+    from backend.services import title_extraction_tasks
+    logger.info(f"AI title extraction tasks imported successfully")
+except ImportError as e:
+    logger.error(f"Failed to import title extraction tasks: {e}")
 
 logger.info("Celery app configured successfully")
 

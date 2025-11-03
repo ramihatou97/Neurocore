@@ -21,3 +21,5 @@ export { default as ActivityChart } from './ActivityChart';
 export { default as SectionEditor } from './SectionEditor';
 export { default as SourceAdder } from './SourceAdder';
 export { default as GapAnalysisPanel } from './GapAnalysisPanel';
+export { default as EmbeddingHeatmap } from './EmbeddingHeatmap';
+export { default as EmbeddingStatsChart } from './EmbeddingStatsChart';

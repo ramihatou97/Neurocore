@@ -15,17 +15,18 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@emotion/react": "^11.11.3",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.15.6",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@heroicons/react": "^2.2.0",
+    "@mui/icons-material": "^5.18.0",
     "@mui/lab": "^5.0.0-alpha.173",
-    "@mui/material": "^5.15.6",
+    "@mui/material": "^5.18.0",
     "axios": "^1.6.5",
-    "date-fns": "^3.2.0",
+    "date-fns": "^3.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.3",
-    "recharts": "^2.10.4"
+    "recharts": "^2.15.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.1",
@@ -35,6 +36,7 @@
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.1.0",
     "@vitest/ui": "^1.1.0",
     "autoprefixer": "^10.4.17",
     "eslint": "^8.56.0",
@@ -46,7 +48,6 @@
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "vite": "^7.1.12",
-    "vitest": "^1.1.0",
-    "@vitest/coverage-v8": "^1.1.0"
+    "vitest": "^1.1.0"
   }
 }

@@ -2,7 +2,7 @@
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 python-multipart==0.0.6
-pydantic==2.5.3
+pydantic==2.12.3  # Upgraded for google-genai compatibility
 pydantic-settings==2.1.0
 
 # Database
@@ -23,13 +23,20 @@ kombu==5.3.5
 flower==2.0.1
 
 # AI/ML Providers
-openai>=1.58.0  # GPT-4o, structured outputs, latest features
-anthropic==0.18.0
+openai>=2.6.0  # Upgraded for httpx>=0.28.1 compatibility (GPT-4o support)
+anthropic>=0.72.0  # Upgraded for httpx>=0.28.1 compatibility
 google-generativeai>=0.8.0  # Required for Gemini 2.0 Flash support
+google-genai>=1.47.0  # New unified SDK with Google Search grounding support
 
 # PDF Processing
 PyMuPDF==1.23.8
 pdfplumber==0.10.3
+
+# Phase 22: Export Capabilities
+markdown2==2.5.3  # Markdown to HTML conversion for PDF export
+weasyprint==62.3  # HTML to PDF conversion
+python-docx==1.1.2  # DOCX export
+pylatex==1.4.2  # LaTeX support for academic PDFs
 
 # Image Processing & OCR
 easyocr==1.7.0
@@ -44,11 +51,11 @@ bcrypt==4.2.1
 email-validator==2.1.0
 
 # HTTP Client
-httpx==0.26.0
+httpx>=0.28.1  # Upgraded for google-genai compatibility
 aiohttp==3.9.1
 
 # WebSocket
-websockets==12.0
+websockets>=15.0.0  # Upgraded for google-genai compatibility
 
 # Data Validation & Parsing
 email-validator==2.1.0
@@ -63,7 +70,6 @@ pytest==7.4.4
 pytest-asyncio==0.23.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
-httpx==0.26.0
 faker==22.0.0
 
 # Code Quality

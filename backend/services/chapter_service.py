@@ -113,8 +113,22 @@ class ChapterService:
 
         Returns:
             List of Chapter objects
+
+        Performance:
+            Uses eager loading to prevent N+1 queries when accessing relationships
         """
+        from sqlalchemy.orm import joinedload, selectinload
+
         query = self.db.query(Chapter)
+
+        # Eager load relationships to prevent N+1 queries
+        # joinedload for single relationships (author)
+        # selectinload for collections (versions, version_history)
+        query = query.options(
+            joinedload(Chapter.author),
+            selectinload(Chapter.versions),
+            selectinload(Chapter.version_history)
+        )
 
         # Apply filters
         if user_id:

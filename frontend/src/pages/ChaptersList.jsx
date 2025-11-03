@@ -11,6 +11,9 @@ import { formatRelativeTime } from '../utils/helpers';
 const ChaptersList = () => {
   const [chapters, setChapters] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingChapterId, setDeletingChapterId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadChapters();
@@ -24,6 +27,28 @@ const ChaptersList = () => {
       console.error('Failed to load chapters:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteClick = (e, chapterId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeletingChapterId(chapterId);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await chaptersAPI.delete(deletingChapterId);
+      setShowDeleteConfirm(false);
+      loadChapters(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to delete chapter:', error);
+      alert('Failed to delete chapter: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setDeleting(false);
+      setDeletingChapterId(null);
     }
   };
 
@@ -52,8 +77,16 @@ const ChaptersList = () => {
                 <p className="text-sm text-gray-600 mb-4 line-clamp-2">
                   {chapter.summary || 'No summary available'}
                 </p>
-                <div className="text-xs text-gray-500">
-                  {formatRelativeTime(chapter.created_at)}
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{formatRelativeTime(chapter.created_at)}</span>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={(e) => handleDeleteClick(e, chapter.id)}
+                    className="text-xs px-2 py-1"
+                  >
+                    🗑️
+                  </Button>
                 </div>
               </Card>
             </Link>
@@ -66,6 +99,37 @@ const ChaptersList = () => {
             <Button variant="primary">Generate Your First Chapter</Button>
           </Link>
         </Card>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && deletingChapterId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="max-w-md w-full">
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Delete Chapter?</h2>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete this chapter? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeletingChapterId(null);
+                }}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete Chapter'}
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

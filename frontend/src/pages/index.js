@@ -14,3 +14,8 @@ export { default as PDFUpload } from './PDFUpload';
 export { default as TasksList } from './TasksList';
 export { default as Search } from './Search';
 export { default as Analytics } from './Analytics';
+export { default as CostDashboard } from './CostDashboard';
+export { default as ProviderAccuracyDashboard } from './ProviderAccuracyDashboard';
+export { default as TextbookUpload } from './TextbookUpload';
+export { default as TextbookLibrary } from './TextbookLibrary';
+export { default as TextbookChapterDetail } from './TextbookChapterDetail';

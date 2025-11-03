@@ -13,6 +13,8 @@ const ChapterDetail = () => {
   const [chapter, setChapter] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -47,6 +49,19 @@ const ChapterDetail = () => {
     // Could show a success toast here
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await chaptersAPI.delete(id);
+      navigate('/chapters');
+    } catch (error) {
+      console.error('Failed to delete chapter:', error);
+      alert('Failed to delete chapter: ' + (error.response?.data?.detail || error.message));
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   if (loading) return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
   if (!chapter) return <div className="text-center py-12">Chapter not found</div>;
 
@@ -77,6 +92,13 @@ const ChapterDetail = () => {
                   v{chapter.version}
                 </Badge>
               )}
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                🗑️ Delete
+              </Button>
             </div>
           </div>
 
@@ -98,22 +120,153 @@ const ChapterDetail = () => {
 
           {/* Quality Scores */}
           {chapter.quality_scores && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-blue-50 p-4 rounded-lg mb-4">
-              <div>
-                <span className="font-medium text-blue-900">Depth:</span>{' '}
-                <span className="text-blue-700">{(chapter.quality_scores.depth * 100).toFixed(1)}%</span>
+            <div className="bg-blue-50 p-4 rounded-lg mb-4">
+              {/* Overall Quality Score - Prominent Display */}
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-blue-200">
+                <div>
+                  <h3 className="text-sm font-semibold text-blue-900 mb-1">Overall Quality Score</h3>
+                  <p className="text-xs text-blue-700">Average of depth, coverage, currency, and evidence scores</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-3xl font-bold text-blue-900">
+                      {(chapter.quality_scores.overall * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <Badge className={`text-sm py-1 px-3 ${
+                    chapter.quality_scores.rating === 'Excellent' ? 'bg-green-100 text-green-800 border-green-300' :
+                    chapter.quality_scores.rating === 'Good' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                    chapter.quality_scores.rating === 'Fair' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                    'bg-red-100 text-red-800 border-red-300'
+                  }`}>
+                    {chapter.quality_scores.rating}
+                  </Badge>
+                </div>
               </div>
-              <div>
-                <span className="font-medium text-blue-900">Coverage:</span>{' '}
-                <span className="text-blue-700">{(chapter.quality_scores.coverage * 100).toFixed(1)}%</span>
+
+              {/* Individual Score Breakdown */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="font-medium text-blue-900">Depth:</span>{' '}
+                  <span className="text-blue-700">{(chapter.quality_scores.depth * 100).toFixed(1)}%</span>
+                </div>
+                <div>
+                  <span className="font-medium text-blue-900">Coverage:</span>{' '}
+                  <span className="text-blue-700">{(chapter.quality_scores.coverage * 100).toFixed(1)}%</span>
+                </div>
+                <div>
+                  <span className="font-medium text-blue-900">Currency:</span>{' '}
+                  <span className="text-blue-700">{(chapter.quality_scores.currency * 100).toFixed(1)}%</span>
+                </div>
+                <div>
+                  <span className="font-medium text-blue-900">Evidence:</span>{' '}
+                  <span className="text-blue-700">{(chapter.quality_scores.evidence * 100).toFixed(1)}%</span>
+                </div>
               </div>
-              <div>
-                <span className="font-medium text-blue-900">Currency:</span>{' '}
-                <span className="text-blue-700">{(chapter.quality_scores.currency * 100).toFixed(1)}%</span>
+            </div>
+          )}
+
+          {/* Generation Confidence - Phase 22 Part 4 */}
+          {chapter.generation_confidence && (
+            <div className="relative group bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-lg mb-4 border border-indigo-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-indigo-900 mb-1 flex items-center gap-2">
+                    <span>Generation Confidence</span>
+                    <span className="text-xs text-indigo-600 font-normal">ℹ️ Hover for details</span>
+                  </h3>
+                  <p className="text-xs text-indigo-700">
+                    AI-powered quality assurance across generation pipeline
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-3xl font-bold text-indigo-900">
+                      {(chapter.generation_confidence.overall * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <Badge className={`text-sm py-1 px-3 ${
+                    chapter.generation_confidence.rating === 'Very High' ? 'bg-green-100 text-green-800 border-green-300' :
+                    chapter.generation_confidence.rating === 'High' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                    chapter.generation_confidence.rating === 'Moderate' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                    'bg-red-100 text-red-800 border-red-300'
+                  }`}>
+                    {chapter.generation_confidence.rating}
+                  </Badge>
+                </div>
               </div>
-              <div>
-                <span className="font-medium text-blue-900">Evidence:</span>{' '}
-                <span className="text-blue-700">{(chapter.quality_scores.evidence * 100).toFixed(1)}%</span>
+
+              {/* Hover Breakdown Tooltip */}
+              <div className="invisible group-hover:visible absolute left-0 right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-indigo-300 p-4 z-10 transition-all duration-200">
+                <div className="text-xs font-semibold text-gray-900 mb-3 border-b pb-2">
+                  Confidence Breakdown
+                </div>
+                <div className="space-y-3">
+                  {/* Analysis Confidence */}
+                  {chapter.generation_confidence.breakdown.components.analysis && (
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">Topic Analysis</div>
+                        <div className="text-gray-600">
+                          {chapter.generation_confidence.breakdown.components.analysis.description}
+                        </div>
+                      </div>
+                      <div className="ml-4 text-right">
+                        <div className="font-bold text-indigo-900">
+                          {(chapter.generation_confidence.breakdown.components.analysis.score * 100).toFixed(1)}%
+                        </div>
+                        <div className="text-gray-500">
+                          Weight: {(chapter.generation_confidence.breakdown.components.analysis.weight * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Research Confidence */}
+                  {chapter.generation_confidence.breakdown.components.research && (
+                    <div className="flex items-center justify-between text-xs border-t pt-2">
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">Research Quality</div>
+                        <div className="text-gray-600">
+                          {chapter.generation_confidence.breakdown.components.research.description}
+                        </div>
+                      </div>
+                      <div className="ml-4 text-right">
+                        <div className="font-bold text-indigo-900">
+                          {(chapter.generation_confidence.breakdown.components.research.score * 100).toFixed(1)}%
+                        </div>
+                        <div className="text-gray-500">
+                          Weight: {(chapter.generation_confidence.breakdown.components.research.weight * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fact-Check Confidence */}
+                  {chapter.generation_confidence.breakdown.components.fact_check && (
+                    <div className="flex items-center justify-between text-xs border-t pt-2">
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">Medical Accuracy</div>
+                        <div className="text-gray-600">
+                          {chapter.generation_confidence.breakdown.components.fact_check.description}
+                        </div>
+                      </div>
+                      <div className="ml-4 text-right">
+                        <div className="font-bold text-indigo-900">
+                          {(chapter.generation_confidence.breakdown.components.fact_check.score * 100).toFixed(1)}%
+                        </div>
+                        <div className="text-gray-500">
+                          Weight: {(chapter.generation_confidence.breakdown.components.fact_check.weight * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Formula Explanation */}
+                <div className="mt-3 pt-3 border-t text-xs text-gray-600">
+                  <span className="font-medium">Formula:</span> Overall = (Analysis × 20%) + (Research × 30%) + (Fact-Check × 50%)
+                </div>
               </div>
             </div>
           )}
@@ -200,6 +353,34 @@ const ChapterDetail = () => {
           </div>
         )}
       </Card>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="max-w-md w-full">
+            <h2 className="text-xl font-bold text-gray-900 mb-3">Delete Chapter?</h2>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete "{chapter.title}"? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete Chapter'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

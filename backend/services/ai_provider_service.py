@@ -1,17 +1,25 @@
 """
 AI Provider Service - Abstraction layer for multiple AI providers
 Supports Claude Sonnet 4.5 (primary), GPT-4/5, and Gemini with hierarchical fallback
+
+Features:
+- Circuit breaker pattern for resilience
+- Automatic fallback on provider failure
+- Per-provider health tracking
+- Fail-fast on repeated failures
 """
 
 import anthropic
 import openai
 import google.generativeai as genai
 import httpx
+import time
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
 from backend.config import settings
 from backend.utils import get_logger
+from backend.services.circuit_breaker import circuit_breaker_manager, CircuitState
 
 logger = get_logger(__name__)
 
@@ -49,11 +57,23 @@ class AIProviderService:
     """
 
     def __init__(self):
-        """Initialize AI provider clients"""
+        """Initialize AI provider clients with circuit breaker protection"""
+        # Initialize circuit breakers
+        self.circuit_breakers = circuit_breaker_manager
+
+        # Initialize provider metrics service (lazy import to avoid circular dependency)
+        try:
+            from backend.services.provider_metrics_service import provider_metrics_service
+            self.metrics_service = provider_metrics_service
+        except ImportError:
+            self.metrics_service = None
+            logger.warning("Provider metrics service not available")
+
         # Initialize Claude (Anthropic)
         if settings.ANTHROPIC_API_KEY:
             self.claude_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-            logger.info("Claude client initialized")
+            self.circuit_breakers.get_breaker("claude")
+            logger.info("Claude client initialized with circuit breaker")
         else:
             self.claude_client = None
             logger.warning("Claude API key not configured")
@@ -66,7 +86,8 @@ class AIProviderService:
                 timeout=httpx.Timeout(30.0, connect=5.0),  # 30s read, 5s connect
                 max_retries=2
             )
-            logger.info("OpenAI client initialized with timeout configuration")
+            self.circuit_breakers.get_breaker("gpt4")
+            logger.info("OpenAI client initialized with circuit breaker")
         else:
             self.openai_client = None
             logger.warning("OpenAI API key not configured")
@@ -74,9 +95,21 @@ class AIProviderService:
         # Initialize Gemini
         if settings.GOOGLE_API_KEY:
             genai.configure(api_key=settings.GOOGLE_API_KEY)
-            logger.info("Gemini client initialized")
+            self.circuit_breakers.get_breaker("gemini")
+            logger.info("Gemini client initialized with circuit breaker")
         else:
             logger.warning("Gemini API key not configured")
+
+        # Initialize Perplexity (for AI-first external research)
+        if settings.PERPLEXITY_API_KEY:
+            self.perplexity_api_key = settings.PERPLEXITY_API_KEY
+            self.perplexity_base_url = settings.PERPLEXITY_API_URL
+            self.circuit_breakers.get_breaker("perplexity")
+            logger.info("Perplexity client configured with circuit breaker")
+        else:
+            self.perplexity_api_key = None
+            self.perplexity_base_url = None
+            logger.warning("Perplexity API key not configured - AI external research disabled")
 
     def get_preferred_provider(self, task: AITask) -> AIProvider:
         """
@@ -111,7 +144,7 @@ class AIProviderService:
         provider: Optional[AIProvider] = None
     ) -> Dict[str, Any]:
         """
-        Generate text using the appropriate AI provider
+        Generate text using the appropriate AI provider with circuit breaker protection
 
         Args:
             prompt: User prompt
@@ -123,34 +156,118 @@ class AIProviderService:
 
         Returns:
             dict with keys: text, provider, tokens_used, cost_usd
+
+        Circuit Breaker Logic:
+            1. Check if primary provider circuit is closed
+            2. If open, automatically try fallback provider
+            3. Record success/failure for circuit breaker state
         """
         # Determine provider
         if provider is None:
             provider = self.get_preferred_provider(task)
 
+        # Try primary provider with circuit breaker
+        result = await self._try_provider_with_circuit_breaker(
+            provider=provider,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+
+        if result is not None:
+            return result
+
+        # Primary failed, try fallback chain
+        fallback_chain = self._get_fallback_chain(provider)
+        for fallback_provider in fallback_chain:
+            logger.info(f"Attempting fallback from {provider} to {fallback_provider}")
+
+            result = await self._try_provider_with_circuit_breaker(
+                provider=fallback_provider,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+
+            if result is not None:
+                return result
+
+        # All providers failed
+        raise Exception(
+            f"All AI providers failed or circuit breakers open. "
+            f"Primary: {provider}, Fallbacks: {fallback_chain}"
+        )
+
+    async def _try_provider_with_circuit_breaker(
+        self,
+        provider: AIProvider,
+        prompt: str,
+        system_prompt: Optional[str],
+        max_tokens: int,
+        temperature: float
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to call provider with circuit breaker protection
+
+        Returns:
+            Result dict on success, None if circuit breaker rejects or call fails
+        """
+        provider_name = provider.value
+        breaker = self.circuit_breakers.get_breaker(provider_name)
+
+        # Check if circuit breaker allows calls
+        if not breaker.is_call_allowed():
+            stats = breaker.get_stats()
+            logger.warning(
+                f"Circuit breaker OPEN for {provider_name}, skipping call "
+                f"(state: {stats['state']})"
+            )
+            return None
+
         try:
+            # Attempt provider call
             if provider == AIProvider.CLAUDE:
-                return await self._generate_claude(prompt, system_prompt, max_tokens, temperature)
+                result = await self._generate_claude(prompt, system_prompt, max_tokens, temperature)
             elif provider == AIProvider.GPT4:
-                return await self._generate_gpt4(prompt, system_prompt, max_tokens, temperature)
+                result = await self._generate_gpt4(prompt, system_prompt, max_tokens, temperature)
             elif provider == AIProvider.GEMINI:
-                return await self._generate_gemini(prompt, max_tokens, temperature, system_prompt)
+                result = await self._generate_gemini(prompt, max_tokens, temperature, system_prompt)
             else:
                 raise ValueError(f"Unknown provider: {provider}")
 
-        except Exception as e:
-            logger.error(f"AI generation failed with {provider}: {str(e)}", exc_info=True)
+            # Success - record and return
+            breaker.record_success()
+            return result
 
-            # Fallback to next provider
-            if provider == AIProvider.CLAUDE and self.openai_client:
-                logger.info("Falling back from Claude to GPT-4")
-                return await self._generate_gpt4(prompt, system_prompt, max_tokens, temperature)
-            elif provider == AIProvider.GPT4 and settings.GOOGLE_API_KEY:
-                logger.info("Falling back from GPT-4 to Gemini")
-                return await self._generate_gemini(prompt, max_tokens, temperature, system_prompt)
-            else:
-                logger.error("No fallback available, re-raising exception")
-                raise
+        except Exception as e:
+            # Failure - record for circuit breaker
+            breaker.record_failure(error=e)
+            logger.error(
+                f"Provider {provider_name} call failed: {str(e)[:200]}"
+            )
+            return None
+
+    def _get_fallback_chain(self, primary_provider: AIProvider) -> List[AIProvider]:
+        """
+        Get ordered fallback provider chain
+
+        Args:
+            primary_provider: Primary provider that failed
+
+        Returns:
+            List of fallback providers to try in order
+        """
+        # Define fallback priorities
+        if primary_provider == AIProvider.CLAUDE:
+            return [AIProvider.GPT4, AIProvider.GEMINI]
+        elif primary_provider == AIProvider.GPT4:
+            return [AIProvider.GEMINI, AIProvider.CLAUDE]
+        elif primary_provider == AIProvider.GEMINI:
+            return [AIProvider.GPT4, AIProvider.CLAUDE]
+        else:
+            return [AIProvider.GPT4, AIProvider.GEMINI]
 
     async def _generate_claude(
         self,
@@ -356,6 +473,9 @@ class AIProviderService:
         """
         Generate text embedding using OpenAI (v1.0+ API)
 
+        CRITICAL: Uses dimensions=1536 parameter to comply with pgvector HNSW limit (2000 dims)
+        text-embedding-3-large @ 1536 dims still outperforms ada-002 @ 1536 dims
+
         Args:
             text: Text to embed
             model: Embedding model to use
@@ -368,7 +488,8 @@ class AIProviderService:
 
         response = self.openai_client.embeddings.create(
             model=model,
-            input=text
+            input=text,
+            dimensions=settings.OPENAI_EMBEDDING_DIMENSIONS  # CRITICAL: 1536 for pgvector compatibility
         )
 
         embedding = response.data[0].embedding
@@ -377,7 +498,7 @@ class AIProviderService:
         # Calculate cost
         cost_usd = (tokens_used / 1000) * settings.OPENAI_EMBEDDING_COST_PER_1K
 
-        logger.debug(f"Embedding generated: {tokens_used} tokens, ${cost_usd:.6f}")
+        logger.debug(f"Embedding generated: {len(embedding)} dims, {tokens_used} tokens, ${cost_usd:.6f}")
 
         return {
             "embedding": embedding,
@@ -391,7 +512,8 @@ class AIProviderService:
         self,
         image_data: bytes,
         prompt: str = "Analyze this medical image in detail. Identify anatomical structures, pathology, and clinical significance.",
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
+        image_format: str = "PNG"
     ) -> Dict[str, Any]:
         """
         Analyze image using Claude Vision (95% complete analysis)
@@ -412,8 +534,15 @@ class AIProviderService:
         # Encode image to base64
         image_b64 = base64.b64encode(image_data).decode('utf-8')
 
-        # Determine media type (assume PNG, but could be improved)
-        media_type = "image/png"
+        # Determine media type from image format
+        format_to_media = {
+            "JPEG": "image/jpeg",
+            "JPG": "image/jpeg",
+            "PNG": "image/png",
+            "WEBP": "image/webp",
+            "GIF": "image/gif"
+        }
+        media_type = format_to_media.get(image_format.upper(), "image/png")
 
         response = self.claude_client.messages.create(
             model=settings.ANTHROPIC_MODEL,
@@ -461,7 +590,8 @@ class AIProviderService:
         self,
         image_data: bytes,
         prompt: str,
-        max_tokens: int = 4000
+        max_tokens: int = 4000,
+        image_format: str = "PNG"
     ) -> Dict[str, Any]:
         """
         Generate image analysis using Claude Vision
@@ -472,17 +602,19 @@ class AIProviderService:
             image_data: Image bytes
             prompt: Analysis prompt
             max_tokens: Maximum tokens for response
+            image_format: Image format (JPEG, PNG, etc.)
 
         Returns:
             dict with analysis results
         """
-        return await self.analyze_image(image_data, prompt, max_tokens)
+        return await self.analyze_image(image_data, prompt, max_tokens, image_format)
 
     async def _generate_openai_vision(
         self,
         image_data: bytes,
         prompt: str,
-        max_tokens: int = 4000
+        max_tokens: int = 4000,
+        image_format: str = "PNG"
     ) -> Dict[str, Any]:
         """
         Generate image analysis using GPT-4o (multimodal vision support)
@@ -519,7 +651,7 @@ class AIProviderService:
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/png;base64,{image_b64}"
+                                "url": f"data:image/{image_format.lower()};base64,{image_b64}"
                             }
                         }
                     ]
@@ -554,7 +686,8 @@ class AIProviderService:
         self,
         image_data: bytes,
         prompt: str,
-        max_tokens: int = 4000
+        max_tokens: int = 4000,
+        image_format: str = "PNG"
     ) -> Dict[str, Any]:
         """
         Generate image analysis using Google Gemini 2.0 Flash Vision
@@ -644,7 +777,10 @@ class AIProviderService:
         image_base64: str,
         prompt: str,
         task: AITask = AITask.IMAGE_ANALYSIS,
-        max_tokens: int = 4000
+        max_tokens: int = 4000,
+        image_format: str = "PNG",
+        image_id: Optional[str] = None,
+        chapter_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate vision analysis with hierarchical fallback
@@ -656,6 +792,9 @@ class AIProviderService:
             prompt: Analysis prompt
             task: Task type
             max_tokens: Maximum tokens
+            image_format: Image format (JPEG, PNG, etc.)
+            image_id: Optional image ID for metrics tracking
+            chapter_id: Optional chapter ID for metrics tracking
 
         Returns:
             Analysis result with provider info
@@ -666,27 +805,167 @@ class AIProviderService:
         image_data = base64.b64decode(image_base64)
 
         # Try Claude Vision first
+        start_time = time.time()
         try:
-            logger.info("Attempting Claude Vision analysis")
-            result = await self._generate_claude_vision(image_data, prompt, max_tokens)
+            logger.info(f"Attempting Claude Vision analysis (format: {image_format})")
+            result = await self._generate_claude_vision(image_data, prompt, max_tokens, image_format)
+
+            # Record success metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="claude",
+                        model=result.get("model", "claude-sonnet-4"),
+                        task_type=task.value,
+                        success=True,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        input_tokens=result.get("input_tokens"),
+                        output_tokens=result.get("output_tokens"),
+                        total_tokens=result.get("tokens_used"),
+                        cost_usd=result.get("cost_usd"),
+                        json_parse_success=None,  # Will be set by caller
+                        was_fallback=False
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record Claude metric: {metric_error}")
+
             return result
         except Exception as e:
+            # Record failure metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            error_type = type(e).__name__
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="claude",
+                        model="claude-sonnet-4",
+                        task_type=task.value,
+                        success=False,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        error_type=error_type,
+                        error_message=str(e)[:500],  # Limit error message length
+                        was_fallback=False
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record Claude failure metric: {metric_error}")
+
             logger.warning(f"Claude Vision failed: {str(e)}, falling back to OpenAI Vision")
 
         # Fall back to OpenAI Vision
+        start_time = time.time()
         try:
-            logger.info("Attempting OpenAI Vision analysis")
-            result = await self._generate_openai_vision(image_data, prompt, max_tokens)
+            logger.info(f"Attempting OpenAI Vision analysis (format: {image_format})")
+            result = await self._generate_openai_vision(image_data, prompt, max_tokens, image_format)
+
+            # Record fallback success metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="gpt4o",
+                        model=result.get("model", "gpt-4o"),
+                        task_type=task.value,
+                        success=True,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        input_tokens=result.get("input_tokens"),
+                        output_tokens=result.get("output_tokens"),
+                        total_tokens=result.get("tokens_used"),
+                        cost_usd=result.get("cost_usd"),
+                        json_parse_success=None,
+                        was_fallback=True,
+                        original_provider="claude",
+                        fallback_reason="Claude Vision failed"
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record GPT-4o metric: {metric_error}")
+
             return result
         except Exception as e:
+            # Record fallback failure metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            error_type = type(e).__name__
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="gpt4o",
+                        model="gpt-4o",
+                        task_type=task.value,
+                        success=False,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        error_type=error_type,
+                        error_message=str(e)[:500],
+                        was_fallback=True,
+                        original_provider="claude",
+                        fallback_reason="Claude Vision failed"
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record GPT-4o failure metric: {metric_error}")
+
             logger.warning(f"OpenAI Vision failed: {str(e)}, falling back to Google Vision")
 
         # Fall back to Google Vision (optional)
+        start_time = time.time()
         try:
-            logger.info("Attempting Google Vision analysis")
-            result = await self._generate_google_vision(image_data, prompt, max_tokens)
+            logger.info(f"Attempting Google Vision analysis (format: {image_format})")
+            result = await self._generate_google_vision(image_data, prompt, max_tokens, image_format)
+
+            # Record second fallback success metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="gemini",
+                        model=result.get("model", settings.GOOGLE_MODEL),
+                        task_type=task.value,
+                        success=True,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        input_tokens=result.get("input_tokens"),
+                        output_tokens=result.get("output_tokens"),
+                        total_tokens=result.get("tokens_used"),
+                        cost_usd=result.get("cost_usd"),
+                        json_parse_success=None,
+                        was_fallback=True,
+                        original_provider="claude",
+                        fallback_reason="Claude and OpenAI Vision failed"
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record Gemini metric: {metric_error}")
+
             return result
         except Exception as e:
+            # Record second fallback failure metric
+            response_time_ms = int((time.time() - start_time) * 1000)
+            error_type = type(e).__name__
+            if self.metrics_service:
+                try:
+                    self.metrics_service.record_metric(
+                        provider="gemini",
+                        model=settings.GOOGLE_MODEL,
+                        task_type=task.value,
+                        success=False,
+                        image_id=image_id,
+                        chapter_id=chapter_id,
+                        response_time_ms=response_time_ms,
+                        error_type=error_type,
+                        error_message=str(e)[:500],
+                        was_fallback=True,
+                        original_provider="claude",
+                        fallback_reason="Claude and OpenAI Vision failed"
+                    )
+                except Exception as metric_error:
+                    logger.warning(f"Failed to record Gemini failure metric: {metric_error}")
+
             logger.error(f"All vision providers failed: {str(e)}")
             raise ValueError("All vision providers failed for image analysis")
 
@@ -1092,3 +1371,434 @@ class AIProviderService:
                 valid_results.append(result)
 
         return valid_results
+
+    async def _generate_perplexity_research(
+        self,
+        query: str,
+        max_tokens: int = 4000,
+        focus: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate neurosurgical research using Perplexity AI (sonar-pro)
+
+        Perplexity provides real-time web search with citations for current
+        surgical techniques, expert opinions, and clinical practice patterns.
+
+        Args:
+            query: Research query (neurosurgical topic)
+            max_tokens: Maximum tokens for response
+            focus: Optional focus area (e.g., "surgical_techniques", "clinical_outcomes")
+
+        Returns:
+            dict with keys:
+                - research: Generated research content
+                - citations: List of source URLs with metadata
+                - provider: "perplexity"
+                - model: "sonar-pro"
+                - tokens_used: Total tokens
+                - cost_usd: Estimated cost
+
+        Raises:
+            ValueError: If Perplexity API key not configured
+            httpx.HTTPError: If API request fails
+        """
+        if not self.perplexity_api_key:
+            raise ValueError("Perplexity API key not configured")
+
+        logger.info(f"Perplexity research: '{query}' (focus: {focus or 'general'})")
+
+        # Build system prompt based on focus
+        system_prompt = """You are an expert neurosurgery research assistant synthesizing PRACTICAL SURGICAL KNOWLEDGE.
+
+Focus on:
+- Current surgical techniques and approaches
+- Expert surgical tips and clinical pearls
+- Real-world practice patterns from leading neurosurgeons
+- Clinical decision-making frameworks
+- Practical management strategies
+- Complication avoidance and management
+
+Provide actionable neurosurgical expertise that a neurosurgeon needs in clinical practice or the operating room.
+Search broadly for expert content, surgical guides, clinical protocols, and authoritative neurosurgical sources."""
+
+        if focus == "surgical_techniques":
+            system_prompt += "\n\nEmphasize detailed surgical approaches, technical nuances, and procedural steps."
+        elif focus == "clinical_outcomes":
+            system_prompt += "\n\nEmphasize clinical outcomes, evidence-based results, and patient management."
+
+        # Build user prompt for comprehensive research
+        user_prompt = f"""Conduct comprehensive neurosurgical research on: {query}
+
+Provide:
+1. Detailed surgical approach and current techniques
+2. Clinical decision-making framework
+3. Expert tips from experienced neurosurgeons
+4. Common complications and management strategies
+5. Patient selection and preoperative planning
+6. Current best practices and expert consensus
+
+Focus on PRACTICAL KNOWLEDGE a neurosurgeon needs in clinic/OR, not just literature review.
+Search for expert content, surgical guides, and clinical protocols from authoritative sources."""
+
+        try:
+            # Call Perplexity API
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.perplexity_base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.perplexity_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": settings.PERPLEXITY_MODEL,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "temperature": settings.PERPLEXITY_TEMPERATURE,
+                        "max_tokens": max_tokens,
+                        "return_citations": True,  # Get source URLs
+                        "search_recency_filter": "month"  # Recent content (last 30 days)
+                    }
+                )
+
+                response.raise_for_status()
+                data = response.json()
+
+            # Extract research content
+            research_content = data["choices"][0]["message"]["content"]
+
+            # Extract citations
+            citations = data.get("citations", [])
+
+            # Estimate tokens and cost (Perplexity doesn't always return usage)
+            # Rough estimate: 4 characters ≈ 1 token
+            estimated_input_tokens = len(system_prompt + user_prompt) // 4
+            estimated_output_tokens = len(research_content) // 4
+            total_tokens = estimated_input_tokens + estimated_output_tokens
+
+            # Calculate cost
+            cost_usd = (
+                (estimated_input_tokens / 1000) * settings.PERPLEXITY_INPUT_COST_PER_1K +
+                (estimated_output_tokens / 1000) * settings.PERPLEXITY_OUTPUT_COST_PER_1K
+            )
+
+            logger.info(
+                f"Perplexity research complete: ~{total_tokens} tokens, "
+                f"{len(citations)} citations, ${cost_usd:.4f}"
+            )
+
+            return {
+                "research": research_content,
+                "citations": citations,
+                "provider": "perplexity",
+                "model": settings.PERPLEXITY_MODEL,
+                "tokens_used": total_tokens,
+                "input_tokens": estimated_input_tokens,
+                "output_tokens": estimated_output_tokens,
+                "cost_usd": cost_usd,
+                "citation_count": len(citations)
+            }
+
+        except httpx.HTTPError as e:
+            logger.error(f"Perplexity API request failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Perplexity research error: {str(e)}", exc_info=True)
+            raise
+
+    async def _generate_gemini_grounded_research(
+        self,
+        query: str,
+        max_tokens: int = 4000,
+        focus: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate neurosurgical research using Gemini 2.0 Flash with Google Search grounding
+
+        Gemini provides real-time web search with citations using Google Search,
+        significantly cheaper than Perplexity (~96% cost savings).
+
+        Args:
+            query: Neurosurgical research query
+            max_tokens: Maximum tokens for response
+            focus: Optional focus area (e.g., "surgical_techniques")
+
+        Returns:
+            dict with keys:
+                - research: Synthesized research content
+                - citations: List of source URLs/citations
+                - provider: "gemini"
+                - model: Model used
+                - tokens_used: Estimated token count
+                - cost_usd: Research cost
+                - citation_count: Number of citations
+
+        Raises:
+            Exception: If Gemini API fails
+        """
+        if not settings.GEMINI_GROUNDING_ENABLED:
+            raise ValueError(
+                "Gemini grounding is not enabled. "
+                "Set GEMINI_GROUNDING_ENABLED=true in environment."
+            )
+
+        logger.info(f"Gemini grounded research: '{query}' (focus: {focus or 'general'})")
+
+        try:
+            # Construct focused prompt for neurosurgical expertise
+            focus_context = ""
+            if focus == "surgical_techniques":
+                focus_context = """
+                Focus specifically on:
+                - Detailed surgical approaches and techniques
+                - Step-by-step surgical procedures
+                - Expert tips and clinical pearls from neurosurgeons
+                - Intraoperative considerations and decision-making
+                - Surgical anatomy and anatomical landmarks
+                """
+            elif focus == "clinical_management":
+                focus_context = """
+                Focus specifically on:
+                - Clinical decision-making algorithms
+                - Patient selection criteria
+                - Preoperative planning and optimization
+                - Postoperative care and monitoring
+                - Complication management
+                """
+            else:
+                focus_context = """
+                Provide comprehensive neurosurgical information covering:
+                - Surgical techniques and approaches
+                - Clinical management strategies
+                - Current best practices
+                - Evidence-based recommendations
+                """
+
+            prompt = f"""You are an expert neurosurgery research assistant synthesizing PRACTICAL SURGICAL KNOWLEDGE from the web.
+
+Research Query: {query}
+
+{focus_context}
+
+Provide a comprehensive synthesis of current neurosurgical expertise from authoritative sources including:
+- Neurosurgical society guidelines and protocols
+- Academic neurosurgical centers' clinical protocols
+- Expert neurosurgeons' published techniques and recommendations
+- Current standard of care from major neurosurgical institutions
+- Evidence-based clinical practice guidelines
+
+Format: Structured synthesis with clear sections and inline citations.
+Emphasize ACTIONABLE clinical knowledge that neurosurgeons can apply in practice."""
+
+            # Use new Google GenAI SDK (google-genai) with grounding support
+            # This is different from google-generativeai package
+            from google import genai as google_genai
+            from google.genai import types
+
+            # Create Gemini client
+            client = google_genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+            # Create google_search tool
+            grounding_tool = types.Tool(
+                google_search=types.GoogleSearch()
+            )
+
+            # Create generation config with tools
+            config = types.GenerateContentConfig(
+                tools=[grounding_tool],
+                temperature=settings.GEMINI_GROUNDING_TEMPERATURE,
+                max_output_tokens=max_tokens,
+            )
+
+            # Generate content with grounding
+            response = client.models.generate_content(
+                model=settings.GOOGLE_MODEL,
+                contents=prompt,
+                config=config,
+            )
+
+            # Extract research content
+            research_content = response.text
+
+            # Extract grounding metadata and citations
+            citations = []
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+
+                # Extract grounding metadata
+                if hasattr(candidate, 'grounding_metadata'):
+                    grounding = candidate.grounding_metadata
+
+                    # Extract search entry point (optional)
+                    if hasattr(grounding, 'search_entry_point'):
+                        search_entry = grounding.search_entry_point
+                        if hasattr(search_entry, 'rendered_content'):
+                            logger.info(f"Gemini search entry point available")
+
+                    # Extract grounding chunks (citations)
+                    if hasattr(grounding, 'grounding_chunks'):
+                        for chunk in grounding.grounding_chunks:
+                            if hasattr(chunk, 'web'):
+                                web_chunk = chunk.web
+                                citation = {
+                                    "url": getattr(web_chunk, 'uri', ''),
+                                    "title": getattr(web_chunk, 'title', ''),
+                                }
+                                if citation["url"]:
+                                    citations.append(citation["url"])
+
+                    # Extract web search queries used
+                    if hasattr(grounding, 'web_search_queries'):
+                        queries_used = grounding.web_search_queries
+                        logger.info(f"Gemini used {len(queries_used)} search queries")
+
+            # Estimate tokens (Gemini doesn't always return usage)
+            # Gemini 2.0 Flash typically: ~4 chars = 1 token
+            estimated_input_tokens = len(prompt) // 4
+            estimated_output_tokens = len(research_content) // 4
+            total_tokens = estimated_input_tokens + estimated_output_tokens
+
+            # Calculate cost (Gemini 2.0 Flash is MUCH cheaper than Perplexity)
+            # Gemini: $0.075 per 1M input, $0.30 per 1M output
+            # Perplexity: ~$1 per 1M tokens (both directions)
+            cost_usd = (
+                (estimated_input_tokens / 1000) * settings.GOOGLE_GEMINI_INPUT_COST_PER_1K +
+                (estimated_output_tokens / 1000) * settings.GOOGLE_GEMINI_OUTPUT_COST_PER_1K
+            )
+
+            logger.info(
+                f"Gemini grounded research complete: ~{total_tokens} tokens, "
+                f"{len(citations)} citations, ${cost_usd:.6f} "
+                f"(~96% cheaper than Perplexity)"
+            )
+
+            return {
+                "research": research_content,
+                "citations": citations,
+                "provider": "gemini",
+                "model": settings.GOOGLE_MODEL,
+                "tokens_used": total_tokens,
+                "input_tokens": estimated_input_tokens,
+                "output_tokens": estimated_output_tokens,
+                "cost_usd": cost_usd,
+                "citation_count": len(citations)
+            }
+
+        except Exception as e:
+            logger.error(f"Gemini grounded research error: {str(e)}", exc_info=True)
+            raise
+
+    async def external_research_ai(
+        self,
+        query: str,
+        provider: Optional[str] = None,
+        max_results: int = 10,
+        focus: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Unified AI research interface for external neurosurgical expertise synthesis
+
+        Routes to appropriate AI provider (Perplexity or Gemini with Google Search grounding)
+        for real-time web-based research on neurosurgical topics.
+
+        Dual AI Provider Support:
+        - Perplexity (sonar-pro): High-quality synthesis, ~$1 per 1M tokens
+        - Gemini 2.0 Flash (grounding): Google Search integration, ~96% cheaper
+
+        Args:
+            query: Neurosurgical research query
+            provider: AI provider to use ("perplexity", "gemini", or None for config default)
+            max_results: Maximum number of sources/citations to return
+            focus: Optional focus area ("surgical_techniques", "clinical_management", etc.)
+
+        Returns:
+            dict with keys:
+                - research: Synthesized research content
+                - sources: List of source citations (URLs)
+                - provider: Provider used ("perplexity" or "gemini")
+                - model: Specific model used
+                - metadata: Additional research metadata (tokens, citations, cost savings)
+                - cost_usd: Research cost
+
+        Example:
+            # Use Gemini (cheaper, Google Search grounding)
+            result = await service.external_research_ai(
+                query="glioblastoma surgical management",
+                provider="gemini",
+                focus="surgical_techniques"
+            )
+
+            # Use Perplexity (alternative provider)
+            result = await service.external_research_ai(
+                query="craniopharyngioma approaches",
+                provider="perplexity",
+                max_results=5
+            )
+        """
+        # Determine provider
+        if provider is None:
+            provider = settings.EXTERNAL_RESEARCH_AI_PROVIDER
+
+        logger.info(f"AI external research: '{query}' (provider: {provider})")
+
+        # Route to appropriate provider
+        if provider == "perplexity":
+            if not self.perplexity_api_key:
+                raise ValueError(
+                    "Perplexity API key not configured. "
+                    "Set PERPLEXITY_API_KEY in environment or disable AI research."
+                )
+
+            result = await self._generate_perplexity_research(
+                query=query,
+                max_tokens=settings.PERPLEXITY_MAX_TOKENS,
+                focus=focus
+            )
+
+            return {
+                "research": result["research"],
+                "sources": result["citations"][:max_results],  # Limit to max_results
+                "provider": "perplexity",
+                "model": result["model"],
+                "metadata": {
+                    "tokens_used": result["tokens_used"],
+                    "citation_count": result["citation_count"],
+                    "focus": focus
+                },
+                "cost_usd": result["cost_usd"]
+            }
+
+        elif provider == "gemini_grounding" or provider == "gemini":
+            # Phase 2: Gemini with Google Search grounding (NOW LIVE)
+            if not settings.GEMINI_GROUNDING_ENABLED:
+                raise ValueError(
+                    "Gemini grounding is not enabled. "
+                    "Set GEMINI_GROUNDING_ENABLED=true in environment."
+                )
+
+            result = await self._generate_gemini_grounded_research(
+                query=query,
+                max_tokens=settings.GEMINI_GROUNDING_MAX_TOKENS,
+                focus=focus
+            )
+
+            return {
+                "research": result["research"],
+                "sources": result["citations"][:max_results],  # Limit to max_results
+                "provider": "gemini",
+                "model": result["model"],
+                "metadata": {
+                    "tokens_used": result["tokens_used"],
+                    "citation_count": result["citation_count"],
+                    "focus": focus,
+                    "cost_savings_vs_perplexity": "~96%"  # Gemini is significantly cheaper
+                },
+                "cost_usd": result["cost_usd"]
+            }
+
+        else:
+            raise ValueError(
+                f"Unknown AI research provider: {provider}. "
+                f"Use 'perplexity' or 'gemini' (both supported)"
+            )

@@ -151,10 +151,10 @@ const ChapterCreate = () => {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">
-                    Stage {progress.stageNumber}/{progress.totalStages}
+                    Stage {progress.stageNumber}: {progress.stage} ({progress.stageNumber}/{progress.totalStages})
                   </span>
-                  <span className="text-sm font-medium text-blue-600">
-                    {progress.stage}
+                  <span className="text-xs text-gray-500">
+                    {progress.progress_percent}%
                   </span>
                 </div>
                 <ProgressBar progress={progress.progress_percent} />

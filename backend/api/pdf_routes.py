@@ -149,6 +149,45 @@ async def pdf_health_check() -> MessageResponse:
     return MessageResponse(message="PDF service is healthy")
 
 
+# ==================== Statistics ====================
+
+@router.get(
+    "/stats",
+    response_model=dict,
+    summary="Get PDF statistics",
+    description="Get aggregate statistics about PDFs in the system"
+)
+async def get_pdf_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Get PDF statistics
+
+    Returns:
+    - total: Total number of PDFs
+    - processing: PDFs currently being processed
+    - completed: PDFs successfully indexed
+    - failed: PDFs that failed processing
+    """
+    pdf_service = PDFService(db)
+
+    # Get counts by status
+    total = db.query(PDF).count()
+    processing = db.query(PDF).filter(PDF.indexing_status == 'processing').count()
+    completed = db.query(PDF).filter(PDF.indexing_status == 'completed').count()
+    failed = db.query(PDF).filter(PDF.indexing_status == 'failed').count()
+    pending = db.query(PDF).filter(PDF.indexing_status == 'pending').count()
+
+    return {
+        "total": total,
+        "processing": processing,
+        "completed": completed,
+        "failed": failed,
+        "pending": pending
+    }
+
+
 # ==================== PDF Routes ====================
 
 @router.post(

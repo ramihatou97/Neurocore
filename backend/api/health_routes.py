@@ -420,6 +420,144 @@ async def detailed_health_check(db=Depends(get_db)) -> Dict[str, Any]:
     return health_report
 
 
+# =============================================================================
+# Circuit Breaker Health Check
+# =============================================================================
+
+@router.get("/health/circuit-breakers", status_code=status.HTTP_200_OK)
+async def circuit_breakers_health() -> Dict[str, Any]:
+    """
+    Circuit breaker health check endpoint
+
+    Provides status of all AI provider circuit breakers.
+    Use this to monitor provider availability and circuit states.
+
+    Returns:
+        dict: Circuit breaker health status for all providers
+    """
+    try:
+        from backend.services.circuit_breaker import CircuitBreakerManager
+
+        manager = CircuitBreakerManager()
+        all_stats = manager.get_all_stats()  # Returns Dict[str, Dict]
+
+        breaker_status = {}
+        all_healthy = True
+
+        for provider, stats in all_stats.items():  # stats is already a dict
+            breaker_status[provider] = {
+                "state": stats['state'],
+                "failure_count": stats['failure_count'],
+                "success_count": stats['success_count'],
+                "total_failures": stats['total_failures'],
+                "total_successes": stats['total_successes'],
+                "last_failure_time": stats['last_failure_time'],
+                "last_success_time": stats['last_success_time'],
+                "healthy": stats['state'] == 'closed'
+            }
+
+            if stats['state'] == 'open':
+                all_healthy = False
+
+        return {
+            "status": "healthy" if all_healthy else "degraded",
+            "timestamp": datetime.utcnow().isoformat(),
+            "circuit_breakers": breaker_status,
+            "summary": {
+                "total_breakers": len(breaker_status),
+                "open_circuits": sum(1 for b in breaker_status.values() if b["state"] == "open"),
+                "half_open_circuits": sum(1 for b in breaker_status.values() if b["state"] == "half_open"),
+                "closed_circuits": sum(1 for b in breaker_status.values() if b["state"] == "closed"),
+                "all_healthy": all_healthy
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Circuit breaker health check failed: {str(e)}")
+        return {
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
+
+
+# =============================================================================
+# Dead Letter Queue Health Check
+# =============================================================================
+
+@router.get("/health/dlq", status_code=status.HTTP_200_OK)
+async def dlq_health() -> Dict[str, Any]:
+    """
+    Dead letter queue health check endpoint
+
+    Provides status of the DLQ including failed task counts and statistics.
+    Use this to monitor permanently failed tasks that need attention.
+
+    Returns:
+        dict: DLQ health status and statistics
+    """
+    try:
+        from backend.services.dead_letter_queue import dlq
+
+        stats = dlq.get_statistics()
+
+        # Determine health status based on DLQ size
+        total_failed = stats.get("total_failed_tasks", 0)
+        recent_failures = stats.get("recent_failures_24h", 0)
+
+        if total_failed == 0:
+            status_level = "healthy"
+        elif total_failed < 10:
+            status_level = "healthy"
+        elif total_failed < 50:
+            status_level = "warning"
+        else:
+            status_level = "critical"
+
+        return {
+            "status": status_level,
+            "timestamp": datetime.utcnow().isoformat(),
+            "statistics": stats,
+            "health_indicators": {
+                "total_failed_tasks": total_failed,
+                "recent_failures_24h": recent_failures,
+                "requires_attention": total_failed > 0,
+                "critical_threshold": 50,
+                "warning_threshold": 10
+            },
+            "recommendations": _get_dlq_recommendations(total_failed, recent_failures)
+        }
+
+    except Exception as e:
+        logger.error(f"DLQ health check failed: {str(e)}")
+        return {
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
+
+
+def _get_dlq_recommendations(total_failed: int, recent_failures: int) -> list:
+    """Generate recommendations based on DLQ metrics"""
+    recommendations = []
+
+    if total_failed == 0:
+        recommendations.append("DLQ is empty - system operating normally")
+    elif total_failed > 50:
+        recommendations.append("CRITICAL: High number of failed tasks - investigate immediately")
+        recommendations.append("Review DLQ entries at /api/v1/monitoring/dlq/failed-tasks")
+    elif total_failed > 10:
+        recommendations.append("WARNING: Multiple failed tasks detected")
+        recommendations.append("Consider manual intervention for permanently failed tasks")
+    else:
+        recommendations.append("Few failed tasks detected - monitor for patterns")
+
+    if recent_failures > 10:
+        recommendations.append("High failure rate in last 24h - check system health")
+
+    return recommendations
+
+
 # Initialize startup time
 import time
 startup_check.start_time = time.time()

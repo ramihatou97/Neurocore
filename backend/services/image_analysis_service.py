@@ -98,11 +98,17 @@ class ImageAnalysisService:
             # Encode image
             image_base64 = self._encode_image(image_path)
 
+            # Get image format for correct media type
+            image_format = image_info.get("format", "PNG").upper()
+
             # Call Vision API with fallback (Claude → OpenAI → Google)
             result = await self.ai_service.generate_vision_analysis_with_fallback(
                 image_base64=image_base64,
                 prompt=prompt,
-                task=AITask.IMAGE_ANALYSIS
+                task=AITask.IMAGE_ANALYSIS,
+                image_format=image_format,
+                image_id=context.get("image_id") if context else None,
+                chapter_id=context.get("chapter_id") if context else None
             )
 
             analysis = self._parse_analysis_result(result["text"])

@@ -44,16 +44,16 @@ const Navbar = () => {
                   Search
                 </Link>
                 <Link
+                  to="/textbooks"
+                  className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  📚 Textbooks
+                </Link>
+                <Link
                   to="/chapters"
                   className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Chapters
-                </Link>
-                <Link
-                  to="/pdfs"
-                  className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  PDFs
                 </Link>
                 <Link
                   to="/tasks"
@@ -62,12 +62,20 @@ const Navbar = () => {
                   Tasks
                 </Link>
                 {user?.is_admin && (
-                  <Link
-                    to="/analytics"
-                    className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
-                  >
-                    Analytics
-                  </Link>
+                  <>
+                    <Link
+                      to="/analytics"
+                      className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
+                    >
+                      Analytics
+                    </Link>
+                    <Link
+                      to="/provider-dashboard"
+                      className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium"
+                    >
+                      Provider Performance
+                    </Link>
+                  </>
                 )}
               </div>
             )}

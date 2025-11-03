@@ -1147,6 +1147,259 @@ def _get_accuracy_grade(accuracy: float) -> str:
         return "F (Poor - Requires Major Revision)"
 
 
+# ==================== AI Provider Analytics ====================
+
+@router.get("/providers/overview")
+async def get_provider_overview(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive overview of all AI provider performance
+
+    Includes:
+    - Total requests by provider
+    - Success rates
+    - Average costs
+    - Response times
+    - Quality scores
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get provider comparison
+        comparison = metrics_service.get_provider_comparison(task_type=None, days=days)
+
+        # Get success rates
+        success_rates = metrics_service.get_success_rates(days=days)
+
+        # Get fallback statistics
+        fallback_stats = metrics_service.get_fallback_statistics(days=days)
+
+        return {
+            "success": True,
+            "period_days": days,
+            "provider_comparison": comparison,
+            "success_rates": success_rates,
+            "fallback_statistics": fallback_stats,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get provider overview: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get provider overview: {str(e)}")
+
+
+@router.get("/providers/comparison")
+async def get_provider_comparison(
+    task_type: Optional[str] = Query(None, description="Filter by task type"),
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get side-by-side comparison of AI providers
+
+    Returns detailed metrics for comparing providers across tasks
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get comparison data
+        comparison = metrics_service.get_provider_comparison(task_type=task_type, days=days)
+
+        # Get cost efficiency
+        cost_efficiency = metrics_service.get_cost_efficiency(days=days)
+
+        return {
+            "success": True,
+            "task_type": task_type,
+            "period_days": days,
+            "comparison": comparison,
+            "cost_efficiency": cost_efficiency,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get provider comparison: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get provider comparison: {str(e)}")
+
+
+@router.get("/providers/{provider}/performance")
+async def get_provider_performance(
+    provider: str,
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed performance report for a single AI provider
+
+    Includes:
+    - Task breakdown
+    - Quality distribution
+    - Error breakdown
+    - Time-series trends
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get comprehensive performance report
+        performance = metrics_service.get_provider_performance(provider, days=days)
+
+        return {
+            "success": True,
+            "performance": performance
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get provider performance: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get provider performance: {str(e)}")
+
+
+@router.get("/providers/task/{task_type}")
+async def get_task_provider_rankings(
+    task_type: str,
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get provider rankings for a specific task type
+
+    Shows which providers perform best for the given task
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get comparison for specific task
+        comparison = metrics_service.get_provider_comparison(task_type=task_type, days=days)
+
+        # Get quality distribution for task
+        quality_distributions = []
+        for provider_stat in comparison:
+            provider = provider_stat['provider']
+            quality_dist = metrics_service.get_quality_distribution(
+                provider=provider,
+                task_type=task_type,
+                days=days
+            )
+            quality_distributions.append(quality_dist)
+
+        # Get cost efficiency for task
+        cost_efficiency = metrics_service.get_cost_efficiency(days=days)
+        task_efficiency = [e for e in cost_efficiency if e['task_type'] == task_type]
+
+        return {
+            "success": True,
+            "task_type": task_type,
+            "period_days": days,
+            "provider_stats": comparison,
+            "quality_distributions": quality_distributions,
+            "cost_efficiency": task_efficiency,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get task rankings: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get task rankings: {str(e)}")
+
+
+@router.get("/providers/quality-vs-cost")
+async def get_quality_vs_cost_analysis(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get quality vs cost efficiency analysis
+
+    Returns scatter plot data for quality-cost trade-off visualization
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get cost efficiency (quality per dollar)
+        cost_efficiency = metrics_service.get_cost_efficiency(days=days)
+
+        # Get detailed comparison for context
+        comparison = metrics_service.get_provider_comparison(task_type=None, days=days)
+
+        return {
+            "success": True,
+            "period_days": days,
+            "cost_efficiency": cost_efficiency,
+            "provider_details": comparison,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get quality vs cost analysis: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get quality vs cost analysis: {str(e)}")
+
+
+@router.get("/providers/errors")
+async def get_provider_errors(
+    provider: Optional[str] = Query(None, description="Filter by provider"),
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get provider error breakdown and analysis
+
+    Shows error types, frequencies, and patterns
+
+    **Admin only**
+    """
+    check_admin_access(current_user)
+
+    try:
+        from backend.services.provider_metrics_service import ProviderMetricsService
+        metrics_service = ProviderMetricsService(db)
+
+        # Get error breakdown
+        error_breakdown = metrics_service.get_error_breakdown(provider=provider, days=days)
+
+        return {
+            "success": True,
+            "provider": provider,
+            "period_days": days,
+            "error_breakdown": error_breakdown,
+            "generated_at": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get provider errors: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get provider errors: {str(e)}")
+
+
 # ==================== Health Check ====================
 
 @router.get("/health")
@@ -1165,6 +1418,7 @@ async def health_check():
             "system_health",
             "trend_analysis",
             "cache_analytics",  # Phase 2: Added cache analytics
-            "fact_checking_analytics"  # Phase 3: Added fact-checking analytics
+            "fact_checking_analytics",  # Phase 3: Added fact-checking analytics
+            "provider_analytics"  # Phase 4: Added AI provider performance analytics
         ]
     }

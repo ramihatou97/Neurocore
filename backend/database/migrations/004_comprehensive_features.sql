@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS chapter_versions (
     content TEXT NOT NULL,
     summary TEXT,
 
-    -- Metadata about this version
-    metadata JSONB DEFAULT '{}',
+    -- Metadata about this version (renamed from 'metadata' to avoid SQLAlchemy reserved name)
+    version_metadata JSONB DEFAULT '{}',
     word_count INTEGER,
     character_count INTEGER,
     change_size INTEGER DEFAULT 0,  -- Net characters added/removed from previous version

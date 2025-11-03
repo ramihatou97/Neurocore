@@ -35,9 +35,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             '/health',
             '/api/docs',
             '/api/redoc',
-            '/api/openapi.json',
-            '/api/v1/auth/login',
-            '/api/v1/auth/register'
+            '/api/openapi.json'
+            # NOTE: Auth endpoints are NOT exempted - they need rate limiting for security
         ]
 
     async def dispatch(self, request: Request, call_next):

@@ -4,11 +4,14 @@ Chapter API routes for generation and management
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import get_db, User
 from backend.services.chapter_service import ChapterService
+from backend.services.export import PDFExporter, DOCXExporter, BibTeXExporter
+from backend.services.cost_estimator import CostEstimator
 from backend.utils import get_logger, get_current_active_user
 
 logger = get_logger(__name__)
@@ -225,6 +228,69 @@ class GapAnalysisSummaryResponse(BaseModel):
         }
 
 
+class CostEstimateRequest(BaseModel):
+    """Request model for cost estimation"""
+    topic: str = Field(..., min_length=3, description="Chapter topic for cost estimation")
+    chapter_type: Optional[str] = Field(None, description="Chapter type (surgical_disease, pure_anatomy, etc.)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "topic": "Management of traumatic brain injury",
+                "chapter_type": "surgical_disease"
+            }
+        }
+
+
+class CostEstimateResponse(BaseModel):
+    """Response model for cost estimation"""
+    estimated_cost_usd: float
+    estimated_cost_base_usd: float
+    buffer_percentage: int
+    breakdown_by_stage: dict
+    breakdown_by_category: dict
+    estimated_duration_seconds: int
+    estimated_duration_minutes: float
+    chapter_type: str
+    complexity_multiplier: float
+    expected_sections: int
+    topic: str
+    estimated_at: str
+    notes: List[str]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "estimated_cost_usd": 0.55,
+                "estimated_cost_base_usd": 0.50,
+                "buffer_percentage": 10,
+                "breakdown_by_stage": {
+                    "analysis": 0.02,
+                    "research": 0.08,
+                    "content_generation": 0.28,
+                    "quality_assurance": 0.12
+                },
+                "breakdown_by_category": {
+                    "analysis_research": 0.10,
+                    "content_generation": 0.28,
+                    "quality_enhancement": 0.12,
+                    "finalization": 0.05
+                },
+                "estimated_duration_seconds": 150,
+                "estimated_duration_minutes": 2.5,
+                "chapter_type": "surgical_disease",
+                "complexity_multiplier": 1.0,
+                "expected_sections": 7,
+                "topic": "Management of traumatic brain injury",
+                "estimated_at": "2025-10-31T12:00:00",
+                "notes": [
+                    "Estimate includes 10% buffer for variability",
+                    "Actual cost may vary based on available research sources"
+                ]
+            }
+        }
+
+
 # ==================== Health Check (must be before dynamic routes) ====================
 
 @router.get(
@@ -242,6 +308,63 @@ async def chapter_health_check() -> MessageResponse:
 
 
 # ==================== Chapter Routes ====================
+
+@router.post(
+    "/estimate-cost",
+    response_model=CostEstimateResponse,
+    summary="Estimate chapter generation cost",
+    description="""
+    Estimate the cost and duration of generating a chapter before creating it.
+
+    This endpoint provides:
+    - Total estimated cost in USD (with 10% buffer)
+    - Breakdown by stage (analysis, research, generation, etc.)
+    - Breakdown by category (analysis_research, content_generation, etc.)
+    - Estimated duration in seconds and minutes
+    - Expected number of sections based on chapter type
+    - Complexity multiplier for the chapter type
+
+    The estimate considers:
+    - Chapter type complexity (surgical_disease, pure_anatomy, surgical_technique, etc.)
+    - Expected number of sections
+    - GPT-4o API pricing ($0.005/1K input, $0.015/1K output tokens)
+    - Embedding costs ($0.00013/1K tokens)
+    - PubMed research (free)
+
+    Typical costs:
+    - Simple anatomy chapter: $0.25 - $0.35
+    - Standard disease chapter: $0.45 - $0.65
+    - Complex review chapter: $0.75 - $1.00
+    - Surgical technique: $0.55 - $0.80
+
+    Note: Actual costs may vary by ±20% based on:
+    - Available research sources
+    - Topic complexity
+    - Quality assurance depth
+    - Fact-checking requirements
+    """
+)
+async def estimate_chapter_cost(
+    request: CostEstimateRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> CostEstimateResponse:
+    """
+    Estimate cost for chapter generation
+
+    Requires authentication.
+    """
+    cost_estimator = CostEstimator()
+
+    estimate = cost_estimator.estimate_cost(
+        topic=request.topic,
+        chapter_type=request.chapter_type
+    )
+
+    logger.info(f"Cost estimated by user {current_user.email}: ${estimate['estimated_cost_usd']:.4f} for '{request.topic}'")
+
+    return CostEstimateResponse(**estimate)
+
 
 @router.post(
     "",
@@ -475,6 +598,241 @@ async def export_chapter(
         "format": "markdown",
         "content": markdown
     }
+
+
+@router.get(
+    "/{chapter_id}/export/pdf",
+    summary="Export chapter as PDF",
+    description="""
+    Export chapter as a professional PDF document.
+
+    Templates available:
+    - academic: Standard academic paper format with abstract, quality metrics, and bibliography
+    - journal: Medical journal submission format (two-column, Vancouver citations)
+    - hospital: Hospital letterhead format with clinical summary and quality assurance metrics
+
+    The PDF export uses WeasyPrint by default (no LaTeX installation required).
+    For LaTeX-based export (requires pdflatex), set use_latex=true.
+
+    The generated PDF includes:
+    - Title page with metadata
+    - Quality and confidence metrics
+    - All chapter sections with formatting
+    - Bibliography/references
+    - Professional styling appropriate for the template
+    """
+)
+async def export_chapter_pdf(
+    chapter_id: str,
+    template: str = Query("academic", description="Template: academic, journal, or hospital"),
+    include_images: bool = Query(True, description="Include images in the PDF"),
+    use_latex: bool = Query(False, description="Use LaTeX compilation (requires pdflatex installed)"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> Response:
+    """
+    Export chapter as PDF
+
+    Requires authentication.
+
+    Returns PDF file with appropriate headers for download.
+    """
+    chapter_service = ChapterService(db)
+
+    # Get chapter
+    chapter = chapter_service.get_chapter(chapter_id)
+
+    # Generate PDF
+    pdf_exporter = PDFExporter()
+
+    try:
+        pdf_bytes = pdf_exporter.export_chapter_to_pdf(
+            chapter=chapter,
+            template=template,
+            include_images=include_images,
+            use_latex=use_latex
+        )
+
+        # Sanitize filename
+        safe_title = "".join(c for c in chapter.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_title = safe_title[:50]  # Limit length
+        filename = f"{safe_title}_v{chapter.version or '1.0'}.pdf"
+
+        logger.info(f"PDF exported for chapter {chapter_id} by user {current_user.email} (template={template})")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\""
+            }
+        )
+    except Exception as e:
+        logger.error(f"PDF export failed for chapter {chapter_id}: {str(e)}", exc_info=True)
+        raise
+
+
+@router.get(
+    "/{chapter_id}/export/docx",
+    summary="Export chapter as DOCX",
+    description="""
+    Export chapter as a Microsoft Word document (.docx).
+
+    The DOCX export includes:
+    - Professional title page with metadata (version, date, chapter type)
+    - Quality and confidence metrics section (if requested)
+    - All chapter sections with preserved formatting (headings, bold, italic, lists)
+    - References section with all citations
+    - Editable in Microsoft Word or compatible software
+
+    The document uses professional styling:
+    - Arial font for headings
+    - Times New Roman for body text
+    - Color-coded headings (dark blue)
+    - Proper spacing and indentation
+    - Structured tables for metrics
+
+    This format is ideal for:
+    - Further editing and customization
+    - Collaboration and review
+    - Integration into larger documents
+    - Submission to journals or institutions
+    """
+)
+async def export_chapter_docx(
+    chapter_id: str,
+    include_images: bool = Query(True, description="Include images in the document"),
+    include_quality_metrics: bool = Query(True, description="Include quality and confidence metrics"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> Response:
+    """
+    Export chapter as DOCX
+
+    Requires authentication.
+
+    Returns DOCX file with appropriate headers for download.
+    """
+    chapter_service = ChapterService(db)
+
+    # Get chapter
+    chapter = chapter_service.get_chapter(chapter_id)
+
+    # Generate DOCX
+    docx_exporter = DOCXExporter()
+
+    try:
+        docx_bytes = docx_exporter.export_chapter_to_docx(
+            chapter=chapter,
+            include_images=include_images,
+            include_quality_metrics=include_quality_metrics
+        )
+
+        # Sanitize filename
+        safe_title = "".join(c for c in chapter.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_title = safe_title[:50]  # Limit length
+        filename = f"{safe_title}_v{chapter.version or '1.0'}.docx"
+
+        logger.info(f"DOCX exported for chapter {chapter_id} by user {current_user.email}")
+
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\""
+            }
+        )
+    except Exception as e:
+        logger.error(f"DOCX export failed for chapter {chapter_id}: {str(e)}", exc_info=True)
+        raise
+
+
+@router.get(
+    "/{chapter_id}/export/bibtex",
+    summary="Export citations as BibTeX",
+    description="""
+    Export chapter citations in BibTeX format for reference managers.
+
+    BibTeX is a widely-used reference format supported by:
+    - LaTeX document preparation system
+    - Reference managers (Zotero, Mendeley, EndNote, etc.)
+    - Academic writing tools
+    - Citation management software
+
+    The export includes:
+    - All chapter citations converted to proper BibTeX entries
+    - Automatic entry type detection (article, book, inbook, etc.)
+    - Unique citation keys (Author_Year_Index)
+    - Properly formatted author names
+    - All available metadata (DOI, PMID, URL, volume, pages, etc.)
+    - Header comments with chapter information
+
+    Citation styles (currently affects metadata completeness):
+    - apa: American Psychological Association
+    - vancouver: Vancouver/NLM style (medical journals)
+    - chicago: Chicago Manual of Style
+
+    The .bib file can be directly imported into:
+    - LaTeX documents via \\bibliography{} command
+    - Reference management software
+    - Academic writing platforms
+
+    Additional format available:
+    - RIS format can be exported via format=ris query parameter
+    """
+)
+async def export_chapter_bibtex(
+    chapter_id: str,
+    style: str = Query("apa", description="Citation style: apa, vancouver, or chicago"),
+    format: str = Query("bibtex", description="Export format: bibtex or ris"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+) -> Response:
+    """
+    Export chapter citations as BibTeX
+
+    Requires authentication.
+
+    Returns .bib file (or .ris if format=ris) with appropriate headers for download.
+    """
+    chapter_service = ChapterService(db)
+
+    # Get chapter
+    chapter = chapter_service.get_chapter(chapter_id)
+
+    # Generate BibTeX
+    bibtex_exporter = BibTeXExporter()
+
+    try:
+        if format.lower() == "ris":
+            content = bibtex_exporter.export_as_ris(chapter)
+            media_type = "application/x-research-info-systems"
+            extension = "ris"
+        else:
+            content = bibtex_exporter.export_chapter_citations(
+                chapter=chapter,
+                style=style
+            )
+            media_type = "application/x-bibtex"
+            extension = "bib"
+
+        # Sanitize filename
+        safe_title = "".join(c for c in chapter.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_title = safe_title[:50]  # Limit length
+        filename = f"{safe_title}_references.{extension}"
+
+        logger.info(f"BibTeX exported for chapter {chapter_id} by user {current_user.email} (style={style}, format={format})")
+
+        return Response(
+            content=content.encode('utf-8'),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\""
+            }
+        )
+    except Exception as e:
+        logger.error(f"BibTeX export failed for chapter {chapter_id}: {str(e)}", exc_info=True)
+        raise
 
 
 @router.post(

@@ -96,7 +96,8 @@ class StorageService:
             return {
                 "file_path": str(file_path),
                 "file_size_bytes": file_size,
-                "storage_id": str(storage_id)
+                "storage_id": str(storage_id),
+                "original_filename": filename
             }
 
         except Exception as e:

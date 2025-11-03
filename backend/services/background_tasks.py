@@ -15,9 +15,12 @@ from backend.services.pdf_service import PDFService
 from backend.services.image_analysis_service import ImageAnalysisService
 from backend.services.embedding_service import EmbeddingService
 from backend.services.task_service import TaskService
+from backend.services.task_checkpoint import TaskCheckpoint
+from backend.services.dead_letter_queue import dlq
 from backend.utils import get_logger
 from backend.utils.websocket_emitter import emitter
 from backend.utils.events import EventType
+import traceback as tb
 
 logger = get_logger(__name__)
 
@@ -102,7 +105,38 @@ def process_pdf_async(self, pdf_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to start PDF processing pipeline: {str(e)}", exc_info=True)
 
-        # Update PDF status to failed
+        # Check if this is the final retry
+        if self.request.retries >= self.max_retries:
+            # Add to dead letter queue
+            logger.error(f"PDF processing exhausted all retries, adding to DLQ: {pdf_id}")
+
+            dlq.add_failed_task(
+                task_name=self.name,
+                task_id=self.request.id,
+                task_args={"pdf_id": pdf_id},
+                error=str(e),
+                traceback=tb.format_exc(),
+                retry_count=self.request.retries,
+                metadata={
+                    "pdf_id": pdf_id,
+                    "failure_type": "pipeline_orchestration",
+                    "max_retries": self.max_retries
+                }
+            )
+
+            # Update PDF status to permanently failed
+            try:
+                pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
+                if pdf:
+                    pdf.indexing_status = "failed_permanent"
+                    self.db_session.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update PDF status: {str(db_error)}")
+
+            # Don't retry - it's permanent
+            raise
+
+        # Update PDF status to failed (will retry)
         try:
             pdf = self.db_session.query(PDF).filter(PDF.id == pdf_id).first()
             if pdf:
@@ -122,7 +156,7 @@ def process_pdf_async(self, pdf_id: str) -> Dict[str, Any]:
 )
 def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
     """
-    Extract text from PDF
+    Extract text from PDF with checkpoint recovery
 
     Args:
         pdf_id: PDF document ID
@@ -130,6 +164,20 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
     Returns:
         Extraction summary
     """
+    # Initialize checkpoint
+    checkpoint = TaskCheckpoint(task_id=pdf_id, task_type="pdf_processing")
+
+    # Check if already complete
+    if checkpoint.is_step_complete("text_extraction"):
+        logger.info(f"Text extraction already complete for {pdf_id}, skipping (checkpoint recovery)")
+        metadata = checkpoint.get_step_metadata("text_extraction")
+        return {
+            "pdf_id": pdf_id,
+            "status": "completed",
+            "from_checkpoint": True,
+            **(metadata or {})
+        }
+
     logger.info(f"Extracting text from PDF: {pdf_id}")
 
     try:
@@ -139,6 +187,12 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
         result = pdf_service.extract_text(pdf_id)
 
         logger.info(f"Text extraction complete for {pdf_id}: {result.get('total_pages', 0)} pages, {result.get('total_words', 0)} words")
+
+        # Mark step complete in checkpoint
+        checkpoint.mark_step_complete("text_extraction", metadata={
+            "page_count": result.get("total_pages", 0),
+            "text_length": result.get("total_text_length", 0)
+        })
 
         # Emit WebSocket event
         import asyncio
@@ -159,6 +213,7 @@ def extract_text_task(self, pdf_id: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Text extraction failed for {pdf_id}: {str(e)}", exc_info=True)
+        checkpoint.mark_step_failed("text_extraction", str(e), retry_count=self.request.retries)
         raise
 
 
@@ -456,6 +511,8 @@ def finalize_pdf_processing(self, pdf_id: str) -> Dict[str, Any]:
     """
     Finalize PDF processing after all stages complete
 
+    Clears checkpoint data on successful completion
+
     Args:
         pdf_id: PDF document ID
 
@@ -473,6 +530,11 @@ def finalize_pdf_processing(self, pdf_id: str) -> Dict[str, Any]:
         # Update status
         pdf.indexing_status = "completed"
         pdf.processing_completed_at = time.time()
+
+        # Clear checkpoint (all steps complete)
+        checkpoint = TaskCheckpoint(task_id=pdf_id, task_type="pdf_processing")
+        checkpoint.clear_checkpoint()
+        logger.info(f"PDF processing complete, checkpoint cleared for: {pdf_id}")
 
         # Calculate processing time
         if pdf.processing_started_at:

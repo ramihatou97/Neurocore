@@ -200,6 +200,14 @@ class Image(Base, UUIDMixin, TimestampMixin):
         post_update=True
     )
 
+    # AI Provider Metrics
+    ai_metrics: Mapped[List["AIProviderMetric"]] = relationship(
+        "AIProviderMetric",
+        back_populates="image",
+        foreign_keys="AIProviderMetric.image_id",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<Image(id={self.id}, type='{self.image_type}', pdf_id={self.pdf_id}, page={self.page_number})>"
 
@@ -209,7 +217,9 @@ class Image(Base, UUIDMixin, TimestampMixin):
             "id": str(self.id),
             "pdf_id": str(self.pdf_id),
             "page_number": self.page_number,
-            "image_index_on_page": self.image_index_on_page,
+            "image_index_on_page": self.image_index_on_page,  # Keep for API compatibility (0-based)
+            "image_number": self.image_index_on_page + 1,  # Human-readable: 1-based numbering
+            "image_label": f"Image {self.image_index_on_page + 1} on Page {self.page_number}",  # Full context label
             "file_path": self.file_path,
             "thumbnail_path": self.thumbnail_path,
             "dimensions": {
@@ -224,7 +234,9 @@ class Image(Base, UUIDMixin, TimestampMixin):
                 "anatomical_structures": self.anatomical_structures,
                 "clinical_context": self.clinical_context,
                 "quality_score": self.quality_score,
-                "confidence_score": self.confidence_score
+                "quality_percentage": round(self.quality_score * 100) if self.quality_score is not None else None,  # User-friendly percentage
+                "confidence_score": self.confidence_score,
+                "confidence_percentage": round(self.confidence_score * 100) if self.confidence_score is not None else None  # User-friendly percentage
             },
             "ocr": {
                 "text": self.ocr_text,

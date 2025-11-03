@@ -257,12 +257,12 @@ class DeduplicationService:
         Returns:
             MD5 hash string
         """
-        # Normalize title
-        title = source.get("title", "").lower().strip()
+        # Normalize title (handle None values)
+        title = (source.get("title") or "").lower().strip()
 
-        # Use DOI or PMID if available (most reliable)
-        doi = source.get("doi", "").lower().strip()
-        pmid = source.get("pmid", "").strip()
+        # Use DOI or PMID if available (most reliable) (handle None values)
+        doi = (source.get("doi") or "").lower().strip()
+        pmid = (source.get("pmid") or "").strip()
 
         # Create hash content
         if doi:

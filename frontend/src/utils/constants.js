@@ -20,21 +20,22 @@ export const STORAGE_KEYS = {
 };
 
 // Chapter Generation Stages
+// NOTE: These names MUST match backend/utils/events.py CHAPTER_STAGE_NAMES exactly
 export const CHAPTER_STAGES = {
   STAGE_1_INPUT: 'Input Validation',
   STAGE_2_CONTEXT: 'Context Building',
   STAGE_3_RESEARCH_INTERNAL: 'Internal Research',
   STAGE_4_RESEARCH_EXTERNAL: 'External Research',
-  STAGE_5_IMAGE_SEARCH: 'Image Search',
-  STAGE_6_SYNTHESIS: 'Content Synthesis',
-  STAGE_7_OUTLINE: 'Outline Creation',
-  STAGE_8_DRAFTING: 'Draft Generation',
-  STAGE_9_ENRICHMENT: 'Content Enrichment',
-  STAGE_10_CITATIONS: 'Citation Integration',
-  STAGE_11_IMAGES: 'Image Integration',
-  STAGE_12_QUALITY: 'Quality Assurance',
-  STAGE_13_FORMATTING: 'Final Formatting',
-  STAGE_14_FINALIZATION: 'Finalization',
+  STAGE_5_PLANNING: 'Synthesis Planning',  // Fixed: was "Image Search"
+  STAGE_6_GENERATION: 'Section Generation',  // Fixed: was "Content Synthesis"
+  STAGE_7_IMAGES: 'Image Integration',  // Fixed: was "Outline Creation"
+  STAGE_8_CITATIONS: 'Citation Network',  // Fixed: was "Draft Generation"
+  STAGE_9_QA: 'Quality Assurance',  // Fixed: was "Content Enrichment"
+  STAGE_10_FACT_CHECK: 'Fact Checking',  // Fixed: was "Citation Integration"
+  STAGE_11_FORMATTING: 'Formatting',  // Fixed: was "Image Integration"
+  STAGE_12_REVIEW: 'Review & Refinement',  // Fixed: was "Quality Assurance"
+  STAGE_13_FINALIZATION: 'Finalization',  // Fixed: was "Final Formatting"
+  STAGE_14_DELIVERY: 'Delivery',  // Fixed: was "Finalization"
 };
 
 // WebSocket Event Types

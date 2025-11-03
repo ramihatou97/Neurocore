@@ -71,6 +71,7 @@ class RateLimitService:
         # Default rate limits
         self.default_limits = {
             'api': (100, 60),  # 100 requests per 60 seconds
+            'auth': (10, 900),  # 10 login attempts per 15 minutes (critical security)
             'search': (30, 60),  # 30 searches per minute
             'ai': (10, 60),  # 10 AI requests per minute
             'upload': (5, 300),  # 5 uploads per 5 minutes
@@ -581,7 +582,10 @@ class RateLimitService:
     def _get_endpoint_limits(self, endpoint: str) -> Tuple[int, int]:
         """Get rate limit configuration for endpoint"""
         # Extract endpoint category from path
-        if '/search' in endpoint:
+        # Auth endpoints get strict limits to prevent brute force attacks
+        if '/auth/login' in endpoint or '/auth/register' in endpoint:
+            return self.default_limits['auth']
+        elif '/search' in endpoint:
             return self.default_limits['search']
         elif '/ai/' in endpoint:
             return self.default_limits['ai']

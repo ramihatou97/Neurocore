@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from backend.config import settings
 from backend.utils import configure_root_logger, get_logger
-from backend.api import auth_routes, pdf_routes, chapter_routes
+from backend.api import auth_routes, pdf_routes, chapter_routes, textbook_routes
 from backend.database import db
 
 # Configure logging
@@ -77,6 +77,15 @@ app.add_middleware(
 )
 logger.info("Security headers middleware enabled")
 
+# Configure Rate Limiting (Critical Security Fix)
+from backend.middleware.rate_limit import RateLimitMiddleware
+from backend.services.rate_limit_service import RateLimitStrategy
+app.add_middleware(
+    RateLimitMiddleware,
+    strategy=RateLimitStrategy.SLIDING_WINDOW
+)
+logger.info("Rate limiting middleware enabled (auth endpoints protected)")
+
 
 # ==================== Root & Health Check Routes ====================
 
@@ -107,6 +116,10 @@ logger.info("Authentication routes registered at /api/v1/auth")
 # Phase 3: PDF routes
 app.include_router(pdf_routes.router, prefix="/api/v1", tags=["pdfs"])
 logger.info("PDF routes registered at /api/v1/pdfs")
+
+# Phase 3.5: Textbook routes (Chapter-Level Vector Search - Phase 5)
+app.include_router(textbook_routes.router, prefix="/api/v1", tags=["textbooks"])
+logger.info("Textbook routes registered at /api/v1/textbooks")
 
 # Phase 4: Chapter routes
 app.include_router(chapter_routes.router, prefix="/api/v1", tags=["chapters"])
@@ -156,6 +169,16 @@ logger.info("Performance monitoring routes registered at /api/v1/performance")
 from backend.api import content_features_routes
 app.include_router(content_features_routes.router, prefix="/api/v1/content", tags=["content-features"])
 logger.info("Content features routes registered at /api/v1/content")
+
+# Circuit Breaker Monitoring routes (Critical Performance Fix)
+from backend.api import circuit_breaker_routes
+app.include_router(circuit_breaker_routes.router, prefix="/api/v1/monitoring", tags=["monitoring"])
+logger.info("Circuit breaker monitoring routes registered at /api/v1/monitoring/circuit-breakers")
+
+# Phase 19: Image routes - recommendations and duplicate detection
+from backend.api import image_routes
+app.include_router(image_routes.router, tags=["images"])
+logger.info("Image routes registered at /api/images")
 
 
 if __name__ == "__main__":

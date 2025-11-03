@@ -24,11 +24,13 @@ class Settings(BaseSettings):
     DB_USER: str = "nsurg_admin"
     DB_PASSWORD: str
 
-    # Connection pool settings (optimized for parallel operations)
-    DB_POOL_SIZE: int = 30  # Increased from 20 for better parallel support
-    DB_MAX_OVERFLOW: int = 50  # Increased from 40 for peak load handling
-    DB_POOL_TIMEOUT: int = 10  # Decreased from 30 (fail fast, not accumulate delays)
-    DB_POOL_RECYCLE: int = 1800  # Decreased from 3600 (30min, prevent stale connections)
+    # Connection pool settings (optimized to prevent exhaustion)
+    # With 7 containers (API + 3 Celery workers + Flower + 2 others):
+    # Total max: 7 × 20 = 140 connections (within PostgreSQL default limit of 100-200)
+    DB_POOL_SIZE: int = 10  # Reduced from 30 - persistent connections per service
+    DB_MAX_OVERFLOW: int = 10  # Reduced from 50 - burst connections per service
+    DB_POOL_TIMEOUT: int = 10  # Fail fast, not accumulate delays
+    DB_POOL_RECYCLE: int = 1800  # 30min, prevent stale connections
 
     @property
     def database_url(self) -> str:
@@ -74,8 +76,10 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"  # 3072 dims, better quality
-    OPENAI_EMBEDDING_DIMENSIONS: int = 3072  # text-embedding-3-large dimensions
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"  # Superior to ada-002
+    # Note: Using dimensions=1536 parameter (pgvector HNSW limit: 2000)
+    # text-embedding-3-large @ 1536 dims > ada-002 @ 1536 dims (better model)
+    OPENAI_EMBEDDING_DIMENSIONS: int = 1536  # text-embedding-3-large with dimensions=1536
     OPENAI_CHAT_MODEL: str = "gpt-4o"  # Latest GPT-4o, 75% cheaper than turbo
     OPENAI_MAX_TOKENS: int = 4096
     OPENAI_TEMPERATURE: float = 0.7
@@ -96,6 +100,14 @@ class Settings(BaseSettings):
     # Medical/Synthesis: Claude Sonnet 4.5 → GPT-4/5 → Claude Opus
     PRIMARY_SYNTHESIS_PROVIDER: str = "anthropic"
     SECONDARY_SYNTHESIS_PROVIDER: str = "openai"
+
+    # ==================== Chapter Generation Performance ====================
+    # Parallel section generation (10x speedup: 11 min → 1 min for large chapters)
+    PARALLEL_SECTION_GENERATION: bool = True
+    # Batch size for parallel generation (higher = faster but more memory)
+    # Conservative default: 5 sections at once (balances speed & API limits)
+    # Aggressive: 10+ sections (for fast AI providers like Gemini)
+    SECTION_GENERATION_BATCH_SIZE: int = 5
     FALLBACK_SYNTHESIS_PROVIDER: str = "anthropic"
 
     # External Research: Gemini Pro 2.5 → Perplexity → OpenAI
@@ -116,7 +128,7 @@ class Settings(BaseSettings):
     PDF_OCR_ENABLED: bool = True
 
     # ==================== Vector Search ====================
-    VECTOR_DIMENSIONS: int = 1536  # OpenAI ada-002
+    VECTOR_DIMENSIONS: int = 1536  # text-embedding-3-large with dimensions=1536
     VECTOR_SEARCH_LIMIT: int = 50
     VECTOR_SIMILARITY_THRESHOLD: float = 0.7
 
@@ -137,6 +149,11 @@ class Settings(BaseSettings):
     GAP_SEVERITY_HIGH: float = 0.8
     GAP_SEVERITY_MEDIUM: float = 0.5
     GAP_SEVERITY_LOW: float = 0.3
+
+    # Automatic gap analysis (runs after Stage 6 section generation)
+    AUTO_GAP_ANALYSIS_ENABLED: bool = True
+    # Whether to halt generation if critical gaps found (for quality control)
+    HALT_ON_CRITICAL_GAPS: bool = False
 
     # ==================== WebSocket ====================
     WEBSOCKET_HEARTBEAT_INTERVAL: int = 30  # seconds
@@ -164,6 +181,46 @@ class Settings(BaseSettings):
     ARXIV_API_URL: str = "http://export.arxiv.org/api/query"
     ARXIV_MAX_RESULTS: int = 50
 
+    # ==================== Perplexity API (AI-First External Research) ====================
+    PERPLEXITY_API_KEY: Optional[str] = None
+    PERPLEXITY_API_URL: str = "https://api.perplexity.ai"
+    PERPLEXITY_MODEL: str = "sonar-pro"  # Search-enabled model for real-time research
+    PERPLEXITY_MAX_TOKENS: int = 4000
+    PERPLEXITY_TEMPERATURE: float = 0.3  # Lower for factual research
+
+    # Perplexity cost tracking (estimated: $1 per 1M tokens for sonar-pro)
+    PERPLEXITY_INPUT_COST_PER_1K: float = 0.001   # $1 per 1M tokens (estimate)
+    PERPLEXITY_OUTPUT_COST_PER_1K: float = 0.001  # $1 per 1M tokens (estimate)
+
+    # ==================== External Research Strategy (AI-First) ====================
+    # Controls whether AI-powered research (Perplexity/Gemini) is enabled
+    EXTERNAL_RESEARCH_AI_ENABLED: bool = True  # Set to False to use PubMed-only mode
+
+    # AI provider selection for external research
+    # Options: "perplexity", "gemini_grounding" (Phase 2), "both"
+    EXTERNAL_RESEARCH_AI_PROVIDER: str = "perplexity"
+
+    # Research execution strategy
+    # Options: "evidence_only" (PubMed only), "ai_only" (AI only), "hybrid" (both)
+    EXTERNAL_RESEARCH_STRATEGY: str = "hybrid"
+
+    # Execute PubMed and AI research in parallel for speed
+    EXTERNAL_RESEARCH_PARALLEL_EXECUTION: bool = True
+
+    # ==================== Gemini Grounding Configuration (Phase 2 - NOW LIVE) ====================
+    GEMINI_GROUNDING_ENABLED: bool = True  # ✓ ENABLED: Google Search grounding
+    GEMINI_SEARCH_TOOL_ENABLED: bool = True  # ✓ ENABLED: Google Search Tools integration
+    GEMINI_GROUNDING_MAX_TOKENS: int = 4000  # Max tokens for grounded research
+    GEMINI_GROUNDING_TEMPERATURE: float = 0.3  # Lower for factual research
+
+    # Dual AI Provider Strategy (Perplexity + Gemini)
+    # Options: "perplexity_only", "gemini_only", "both_parallel", "both_fallback", "auto_select"
+    DUAL_AI_PROVIDER_STRATEGY: str = "both_parallel"  # Run both in parallel for maximum coverage
+
+    # Auto-select: Choose provider based on cost/quality metrics
+    AUTO_SELECT_PREFER_COST: bool = True  # True = prefer cheaper (Gemini), False = prefer quality
+    AUTO_SELECT_COST_THRESHOLD: float = 0.5  # Max cost difference to switch providers (in USD)
+
     # ==================== File Storage ====================
     # Container path that matches Docker volume mounts (pdf_storage:/data/pdfs, image_storage:/data/images)
     STORAGE_BASE_PATH: str = "/data"
@@ -177,6 +234,26 @@ class Settings(BaseSettings):
     ENABLE_METRICS: bool = True
     ENABLE_CACHE_ANALYTICS: bool = True
     METRICS_EXPORT_INTERVAL: int = 60  # seconds
+
+    # ==================== Resilience & Error Handling ====================
+
+    # Circuit Breaker Configuration
+    # Prevents cascading failures by temporarily disabling failing AI providers
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5  # Failures needed to open circuit
+    CIRCUIT_BREAKER_FAILURE_WINDOW: int = 60  # Time window for counting failures (seconds)
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 60  # Time before attempting recovery (seconds)
+    CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: int = 3  # Test calls in half-open state
+
+    # Task Checkpoint Configuration
+    # Enables resuming long-running tasks from last successful step
+    TASK_CHECKPOINT_TTL: int = 604800  # Checkpoint retention: 7 days in seconds
+    TASK_CHECKPOINT_ENABLED: bool = True  # Enable checkpoint recovery
+
+    # Dead Letter Queue Configuration
+    # Captures permanently failed tasks for manual intervention
+    DLQ_RETENTION_DAYS: int = 30  # Failed task retention period
+    DLQ_MAX_ENTRIES: int = 10000  # Maximum DLQ entries before cleanup
+    DLQ_ENABLED: bool = True  # Enable dead letter queue
 
     # Cost tracking
     # OpenAI Embeddings

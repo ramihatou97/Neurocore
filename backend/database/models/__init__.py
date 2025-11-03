@@ -13,6 +13,12 @@ from backend.database.models.citation import Citation
 from backend.database.models.cache_analytics import CacheAnalytics
 from backend.database.models.task import Task
 from backend.database.models.export_template import ExportTemplate, CitationStyle, ExportHistory
+from backend.database.models.ai_provider_metric import AIProviderMetric
+
+# Chapter-level vector search models (Phase 2)
+from backend.database.models.pdf_book import PDFBook
+from backend.database.models.pdf_chapter import PDFChapter
+from backend.database.models.pdf_chunk import PDFChunk
 
 __all__ = [
     # Base classes
@@ -32,4 +38,10 @@ __all__ = [
     "ExportTemplate",
     "CitationStyle",
     "ExportHistory",
+    "AIProviderMetric",
+
+    # Chapter-level vector search models
+    "PDFBook",
+    "PDFChapter",
+    "PDFChunk",
 ]

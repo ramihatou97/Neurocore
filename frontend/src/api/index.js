@@ -7,6 +7,8 @@ import authAPI from './auth';
 import pdfAPI from './pdfs';
 import chaptersAPI from './chapters';
 import tasksAPI from './tasks';
+import textbookAPI from './textbooks';
+import analyticsAPI from './analytics';
 import apiClient from './client';
 
 export {
@@ -14,6 +16,8 @@ export {
   pdfAPI,
   chaptersAPI,
   tasksAPI,
+  textbookAPI,
+  analyticsAPI,
   apiClient,
 };
 
@@ -22,5 +26,7 @@ export default {
   pdfs: pdfAPI,
   chapters: chaptersAPI,
   tasks: tasksAPI,
+  textbooks: textbookAPI,
+  analytics: analyticsAPI,
   client: apiClient,
 };

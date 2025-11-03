@@ -55,6 +55,13 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         comment="Array of section objects with content"
     )
 
+    # References/Citations
+    references: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Array of reference objects (citations from all sources)"
+    )
+
     # Metadata about structure
     structure_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB,
@@ -63,6 +70,13 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
     )
 
     # ==================== Workflow Stage Tracking ====================
+
+    # Stage 1: Input Validation & Analysis
+    stage_1_input: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Topic validation, chapter type analysis, confidence scores"
+    )
 
     # Stage 2: Context Intelligence
     stage_2_context: Mapped[Optional[Dict[str, Any]]] = mapped_column(
@@ -106,6 +120,27 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         comment="Documents integrated, conflicts resolved, nuance merge results"
     )
 
+    # Stage 10: Medical Fact-Checking
+    stage_10_fact_check: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Fact-checking results: accuracy scores, verified claims, critical issues"
+    )
+
+    # Stage 11: Formatting & Structure
+    stage_11_formatting: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Markdown validation results, table of contents, formatting statistics, structure validation"
+    )
+
+    # Stage 12: Quality Review & Refinement
+    stage_12_review: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="AI-powered quality review: contradictions, readability issues, flow problems, improvement suggestions"
+    )
+
     # ==================== Phase 2 Week 5: Comprehensive Gap Analysis ====================
 
     gap_analysis: Mapped[Optional[Dict[str, Any]]] = mapped_column(
@@ -138,6 +173,22 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         Float,
         nullable=True,
         comment="Strength of evidence-based content (0.0 - 1.0)"
+    )
+
+    # ==================== Fact-Checking Status ====================
+
+    fact_checked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether fact-checking has been performed (Stage 10)"
+    )
+
+    fact_check_passed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether fact-checking passed quality thresholds"
     )
 
     # ==================== Version Control ====================
@@ -220,6 +271,15 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         order_by="desc(ChapterVersion.version_number)"
     )
 
+    # ==================== AI Provider Metrics ====================
+    # Relationship to AI provider metrics for performance tracking
+    ai_metrics: Mapped[List["AIProviderMetric"]] = relationship(
+        "AIProviderMetric",
+        back_populates="chapter",
+        foreign_keys="AIProviderMetric.chapter_id",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<Chapter(id={self.id}, title='{self.title[:50]}...', version='{self.version}', status='{self.generation_status}')>"
 
@@ -248,7 +308,18 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
                 "depth": self.depth_score,
                 "coverage": self.coverage_score,
                 "currency": self.currency_score,
-                "evidence": self.evidence_score
+                "evidence": self.evidence_score,
+                "overall": self.overall_quality_score,
+                "rating": self.get_quality_rating()
+            }
+
+        # Generation confidence (Phase 22 Part 4)
+        confidence = self.generation_confidence
+        if confidence > 0:
+            data["generation_confidence"] = {
+                "overall": confidence,
+                "rating": self.get_confidence_rating(),
+                "breakdown": self.get_confidence_breakdown()
             }
 
         # Structure metadata
@@ -323,3 +394,178 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
         if not self.gap_analysis:
             return 1.0  # No analysis = assume complete
         return self.gap_analysis.get("overall_completeness_score", 1.0)
+
+    @property
+    def overall_quality_score(self) -> float:
+        """
+        Compute overall quality score from four dimensions
+
+        Returns average of:
+        - Depth score (0-1): Content depth and detail
+        - Coverage score (0-1): Topic coverage completeness
+        - Evidence score (0-1): Strength of evidence-based content
+        - Currency score (0-1): Recency of literature cited
+
+        Returns:
+            Overall quality score (0.0 - 1.0), or 0.0 if no scores available
+        """
+        scores = []
+
+        if self.depth_score is not None:
+            scores.append(self.depth_score)
+        if self.coverage_score is not None:
+            scores.append(self.coverage_score)
+        if self.evidence_score is not None:
+            scores.append(self.evidence_score)
+        if self.currency_score is not None:
+            scores.append(self.currency_score)
+
+        if not scores:
+            return 0.0
+
+        return sum(scores) / len(scores)
+
+    def get_quality_rating(self) -> str:
+        """
+        Get quality rating as human-readable string
+
+        Returns:
+            "Excellent" (90-100%), "Good" (75-89%), "Fair" (60-74%), or "Needs Improvement" (<60%)
+        """
+        score = self.overall_quality_score
+        percentage = score * 100
+
+        if percentage >= 90:
+            return "Excellent"
+        elif percentage >= 75:
+            return "Good"
+        elif percentage >= 60:
+            return "Fair"
+        else:
+            return "Needs Improvement"
+
+    @property
+    def generation_confidence(self) -> float:
+        """
+        Compute overall generation confidence from three stages
+
+        Weighted combination:
+        - Stage 1 (Analysis): 20% weight - Confidence in topic analysis and classification
+        - Stage 2 (Research Context): 30% weight - Confidence in available research quality
+        - Stage 10 (Fact-Check): 50% weight - Accuracy of medical claims verification
+
+        Returns:
+            Generation confidence score (0.0 - 1.0), or 0.0 if no data available
+        """
+        confidences = []
+        weights = []
+
+        # Stage 1: Analysis confidence (20% weight)
+        if self.stage_1_input:
+            analysis = self.stage_1_input.get("analysis", {})
+            analysis_confidence = analysis.get("analysis_confidence")
+            if analysis_confidence is not None:
+                confidences.append(float(analysis_confidence))
+                weights.append(0.2)
+
+        # Stage 2: Research context confidence (30% weight)
+        if self.stage_2_context:
+            context = self.stage_2_context.get("context", {})
+            confidence_assessment = context.get("confidence_assessment", {})
+            context_confidence = confidence_assessment.get("overall_confidence")
+            if context_confidence is not None:
+                confidences.append(float(context_confidence))
+                weights.append(0.3)
+
+        # Stage 10: Fact-check accuracy (50% weight)
+        if self.stage_10_fact_check:
+            fact_check_data = self.stage_10_fact_check.get("fact_check_data", {})
+            fact_check_accuracy = fact_check_data.get("overall_accuracy")
+            if fact_check_accuracy is not None:
+                confidences.append(float(fact_check_accuracy))
+                weights.append(0.5)
+
+        # If no confidence data available, return 0.0
+        if not confidences:
+            return 0.0
+
+        # Calculate weighted average
+        total_weight = sum(weights)
+        if total_weight == 0:
+            return 0.0
+
+        weighted_sum = sum(c * w for c, w in zip(confidences, weights))
+        return weighted_sum / total_weight
+
+    def get_confidence_breakdown(self) -> dict:
+        """
+        Get detailed breakdown of confidence scores
+
+        Returns:
+            Dictionary with individual confidence scores and their contributions
+        """
+        breakdown = {
+            "overall": self.generation_confidence,
+            "components": {}
+        }
+
+        # Stage 1: Analysis confidence
+        if self.stage_1_input:
+            analysis = self.stage_1_input.get("analysis", {})
+            analysis_confidence = analysis.get("analysis_confidence")
+            if analysis_confidence is not None:
+                breakdown["components"]["analysis"] = {
+                    "score": float(analysis_confidence),
+                    "weight": 0.2,
+                    "contribution": float(analysis_confidence) * 0.2,
+                    "description": "Topic analysis and classification confidence"
+                }
+
+        # Stage 2: Research context confidence
+        if self.stage_2_context:
+            context = self.stage_2_context.get("context", {})
+            confidence_assessment = context.get("confidence_assessment", {})
+            context_confidence = confidence_assessment.get("overall_confidence")
+            evidence_quality = confidence_assessment.get("evidence_quality", "unknown")
+            if context_confidence is not None:
+                breakdown["components"]["research"] = {
+                    "score": float(context_confidence),
+                    "weight": 0.3,
+                    "contribution": float(context_confidence) * 0.3,
+                    "description": f"Research availability and quality ({evidence_quality})"
+                }
+
+        # Stage 10: Fact-check accuracy
+        if self.stage_10_fact_check:
+            fact_check_data = self.stage_10_fact_check.get("fact_check_data", {})
+            fact_check_accuracy = fact_check_data.get("overall_accuracy")
+            verified_count = len([c for c in fact_check_data.get("claims", []) if c.get("verified", False)])
+            total_claims = len(fact_check_data.get("claims", []))
+            if fact_check_accuracy is not None:
+                breakdown["components"]["fact_check"] = {
+                    "score": float(fact_check_accuracy),
+                    "weight": 0.5,
+                    "contribution": float(fact_check_accuracy) * 0.5,
+                    "description": f"Medical accuracy ({verified_count}/{total_claims} claims verified)"
+                }
+
+        return breakdown
+
+    def get_confidence_rating(self) -> str:
+        """
+        Get confidence rating as human-readable string
+
+        Returns:
+            "Very High" (90-100%), "High" (75-89%), "Moderate" (60-74%), or "Low" (<60%)
+        """
+        score = self.generation_confidence
+        percentage = score * 100
+
+        if percentage >= 90:
+            return "Very High"
+        elif percentage >= 75:
+            return "High"
+        elif percentage >= 60:
+            return "Moderate"
+        else:
+            return "Low"

@@ -18,6 +18,11 @@ import {
   TasksList,
   Search,
   Analytics,
+  CostDashboard,
+  ProviderAccuracyDashboard,
+  TextbookUpload,
+  TextbookLibrary,
+  TextbookChapterDetail,
 } from './pages';
 
 function App() {
@@ -85,6 +90,32 @@ function App() {
               }
             />
 
+            {/* Textbook Routes */}
+            <Route
+              path="/textbooks"
+              element={
+                <ProtectedRoute>
+                  <TextbookLibrary />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/textbooks/upload"
+              element={
+                <ProtectedRoute>
+                  <TextbookUpload />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/textbooks/chapters/:chapterId"
+              element={
+                <ProtectedRoute>
+                  <TextbookChapterDetail />
+                </ProtectedRoute>
+              }
+            />
+
             {/* Task Routes */}
             <Route
               path="/tasks"
@@ -111,6 +142,26 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Analytics />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Cost Dashboard Route */}
+            <Route
+              path="/cost-dashboard"
+              element={
+                <ProtectedRoute>
+                  <CostDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Provider Accuracy Dashboard Route */}
+            <Route
+              path="/provider-dashboard"
+              element={
+                <ProtectedRoute>
+                  <ProviderAccuracyDashboard />
                 </ProtectedRoute>
               }
             />

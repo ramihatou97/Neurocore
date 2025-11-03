@@ -70,6 +70,12 @@ CHAPTER_ANALYSIS_SCHEMA = {
                 "description": "Recommended number of sections for this chapter",
                 "minimum": 10,
                 "maximum": 150
+            },
+            "analysis_confidence": {
+                "type": "number",
+                "description": "Confidence in the chapter analysis and classification (0-1)",
+                "minimum": 0,
+                "maximum": 1
             }
         },
         "required": [
@@ -79,7 +85,8 @@ CHAPTER_ANALYSIS_SCHEMA = {
             "complexity",
             "anatomical_regions",
             "surgical_approaches",
-            "estimated_section_count"
+            "estimated_section_count",
+            "analysis_confidence"
         ],
         "additionalProperties": False
     }
@@ -476,6 +483,197 @@ IMAGE_ANALYSIS_SCHEMA = {
 
 
 # ============================================================================
+# CHAPTER REVIEW SCHEMA (Stage 12: Quality Review & Refinement)
+# ============================================================================
+
+CHAPTER_REVIEW_SCHEMA = {
+    "name": "chapter_review",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "contradictions": {
+                "type": "array",
+                "description": "Internal contradictions found between sections",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section_1": {"type": "string", "description": "First section with contradiction"},
+                        "section_2": {"type": "string", "description": "Second section with contradiction"},
+                        "contradiction_description": {"type": "string", "description": "Description of the contradiction"},
+                        "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+                        "suggested_resolution": {"type": "string", "description": "How to resolve this contradiction"}
+                    },
+                    "required": ["section_1", "section_2", "contradiction_description", "severity", "suggested_resolution"],
+                    "additionalProperties": False
+                }
+            },
+            "readability_issues": {
+                "type": "array",
+                "description": "Readability problems identified",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string", "description": "Section with readability issue"},
+                        "issue_type": {
+                            "type": "string",
+                            "enum": ["jargon_overuse", "unclear_explanation", "poor_flow", "missing_context", "too_technical", "too_simple"],
+                            "description": "Type of readability issue"
+                        },
+                        "description": {"type": "string", "description": "Description of the issue"},
+                        "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "improvement_suggestion": {"type": "string", "description": "How to improve readability"}
+                    },
+                    "required": ["section", "issue_type", "description", "severity", "improvement_suggestion"],
+                    "additionalProperties": False
+                }
+            },
+            "missing_transitions": {
+                "type": "array",
+                "description": "Missing or weak transitions between sections",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "from_section": {"type": "string", "description": "Section transitioning from"},
+                        "to_section": {"type": "string", "description": "Section transitioning to"},
+                        "issue": {"type": "string", "description": "Why the transition is missing or weak"},
+                        "suggested_transition": {"type": "string", "description": "Suggested transition text"}
+                    },
+                    "required": ["from_section", "to_section", "issue", "suggested_transition"],
+                    "additionalProperties": False
+                }
+            },
+            "citation_issues": {
+                "type": "array",
+                "description": "Problems with citations and references",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string", "description": "Section with citation issue"},
+                        "issue_type": {
+                            "type": "string",
+                            "enum": ["missing_citation", "outdated_citation", "citation_mismatch", "over_citation", "under_citation"],
+                            "description": "Type of citation issue"
+                        },
+                        "description": {"type": "string", "description": "Description of citation issue"},
+                        "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "recommendation": {"type": "string", "description": "Recommended action"}
+                    },
+                    "required": ["section", "issue_type", "description", "severity", "recommendation"],
+                    "additionalProperties": False
+                }
+            },
+            "logical_flow_issues": {
+                "type": "array",
+                "description": "Problems with logical progression and structure",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string", "description": "Section with flow issue"},
+                        "issue": {"type": "string", "description": "Description of logical flow problem"},
+                        "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "suggested_reordering": {"type": "string", "description": "Suggested reordering or restructuring"}
+                    },
+                    "required": ["section", "issue", "severity", "suggested_reordering"],
+                    "additionalProperties": False
+                }
+            },
+            "unclear_explanations": {
+                "type": "array",
+                "description": "Concepts or explanations that are unclear",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string", "description": "Section with unclear explanation"},
+                        "concept": {"type": "string", "description": "The unclear concept"},
+                        "why_unclear": {"type": "string", "description": "Why this explanation is unclear"},
+                        "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "clarification_suggestion": {"type": "string", "description": "How to clarify"}
+                    },
+                    "required": ["section", "concept", "why_unclear", "severity", "clarification_suggestion"],
+                    "additionalProperties": False
+                }
+            },
+            "overall_quality_assessment": {
+                "type": "object",
+                "description": "Overall quality assessment of the chapter",
+                "properties": {
+                    "clarity_score": {"type": "number", "minimum": 0, "maximum": 1, "description": "How clear the writing is (0-1)"},
+                    "coherence_score": {"type": "number", "minimum": 0, "maximum": 1, "description": "How well sections flow together (0-1)"},
+                    "consistency_score": {"type": "number", "minimum": 0, "maximum": 1, "description": "How consistent terminology and style is (0-1)"},
+                    "completeness_score": {"type": "number", "minimum": 0, "maximum": 1, "description": "How complete the coverage is (0-1)"},
+                    "readability_level": {
+                        "type": "string",
+                        "enum": ["excellent", "good", "fair", "poor"],
+                        "description": "Overall readability level"
+                    },
+                    "target_audience_alignment": {
+                        "type": "string",
+                        "enum": ["excellent", "good", "fair", "poor"],
+                        "description": "How well aligned with target audience (neurosurgery residents/fellows)"
+                    }
+                },
+                "required": ["clarity_score", "coherence_score", "consistency_score", "completeness_score", "readability_level", "target_audience_alignment"],
+                "additionalProperties": False
+            },
+            "strengths": {
+                "type": "array",
+                "description": "Identified strengths of the chapter",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 10
+            },
+            "priority_improvements": {
+                "type": "array",
+                "description": "Top priority improvements ranked by importance",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "priority_rank": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Priority ranking (1=highest)"},
+                        "category": {
+                            "type": "string",
+                            "enum": ["contradiction", "readability", "citation", "flow", "clarity", "completeness"],
+                            "description": "Category of improvement"
+                        },
+                        "description": {"type": "string", "description": "What needs improvement"},
+                        "impact": {"type": "string", "enum": ["critical", "high", "medium", "low"], "description": "Impact of this improvement"},
+                        "effort_required": {"type": "string", "enum": ["low", "medium", "high"], "description": "Effort to implement"}
+                    },
+                    "required": ["priority_rank", "category", "description", "impact", "effort_required"],
+                    "additionalProperties": False
+                },
+                "minItems": 0,
+                "maxItems": 10
+            },
+            "overall_recommendation": {
+                "type": "string",
+                "enum": ["publish_as_is", "minor_revisions", "moderate_revisions", "major_revisions"],
+                "description": "Overall recommendation for next steps"
+            },
+            "review_summary": {
+                "type": "string",
+                "description": "Brief summary of review findings (2-3 sentences)"
+            }
+        },
+        "required": [
+            "contradictions",
+            "readability_issues",
+            "missing_transitions",
+            "citation_issues",
+            "logical_flow_issues",
+            "unclear_explanations",
+            "overall_quality_assessment",
+            "strengths",
+            "priority_improvements",
+            "overall_recommendation",
+            "review_summary"
+        ],
+        "additionalProperties": False
+    }
+}
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -499,6 +697,7 @@ def get_schema_by_name(schema_name: str) -> Dict[str, Any]:
         "metadata_extraction": METADATA_EXTRACTION_SCHEMA,
         "source_relevance": SOURCE_RELEVANCE_SCHEMA,
         "image_analysis": IMAGE_ANALYSIS_SCHEMA,
+        "chapter_review": CHAPTER_REVIEW_SCHEMA,
     }
 
     if schema_name not in schemas:
