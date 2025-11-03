@@ -7,15 +7,13 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-import openai
+from openai import OpenAI  # Fixed: Migrated to openai>=1.0.0 client pattern
 import re
 
 from backend.config import settings
 from backend.utils import get_logger
 
 logger = get_logger(__name__)
-
-openai.api_key = settings.OPENAI_API_KEY
 
 
 class SummaryService:
@@ -32,6 +30,8 @@ class SummaryService:
 
     def __init__(self, db: Session):
         self.db = db
+        # Fixed: Initialize OpenAI client (openai>=1.0.0 pattern)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # ==================== Summary Generation ====================
 
@@ -162,7 +162,8 @@ KEY POINTS:
 """
 
         try:
-            response = openai.ChatCompletion.create(
+            # Fixed: Use new client.chat.completions.create() API (openai>=1.0.0)
+            response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a medical expert specializing in neurosurgery summarization."},
@@ -172,7 +173,8 @@ KEY POINTS:
                 max_tokens=max_length + 100
             )
 
-            content = response.choices[0].message['content'].strip()
+            # Fixed: Response is now an object, not dict
+            content = response.choices[0].message.content.strip()
 
             # Parse summary and key points
             summary_match = re.search(r'SUMMARY:\s*(.+?)(?=KEY POINTS:|$)', content, re.DOTALL)

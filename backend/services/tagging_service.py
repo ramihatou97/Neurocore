@@ -9,16 +9,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, or_, desc
 from uuid import UUID
 import json
-import openai
+from openai import OpenAI  # Fixed: Migrated to openai>=1.0.0 client pattern
 import re
 
 from backend.config import settings
 from backend.utils import get_logger
 
 logger = get_logger(__name__)
-
-# Initialize OpenAI
-openai.api_key = settings.OPENAI_API_KEY
 
 
 class TaggingService:
@@ -35,6 +32,8 @@ class TaggingService:
 
     def __init__(self, db: Session):
         self.db = db
+        # Fixed: Initialize OpenAI client (openai>=1.0.0 pattern)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # ==================== Auto-Tagging Methods ====================
 
@@ -160,8 +159,8 @@ Focus on:
 
 Return ONLY the JSON array, no additional text."""
 
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
+            # Fixed: Use new client.chat.completions.create() API (openai>=1.0.0)
+            response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a medical content tagging expert specializing in neurosurgery."},
@@ -171,8 +170,8 @@ Return ONLY the JSON array, no additional text."""
                 max_tokens=500
             )
 
-            # Parse response
-            response_text = response.choices[0].message['content'].strip()
+            # Fixed: Response is now an object, not dict
+            response_text = response.choices[0].message.content.strip()
 
             # Extract JSON from response
             json_match = re.search(r'\[.*\]', response_text, re.DOTALL)

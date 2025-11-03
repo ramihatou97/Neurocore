@@ -7,15 +7,13 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-import openai
+from openai import OpenAI  # Fixed: Migrated to openai>=1.0.0 client pattern
 import json
 
 from backend.config import settings
 from backend.utils import get_logger
 
 logger = get_logger(__name__)
-
-openai.api_key = settings.OPENAI_API_KEY
 
 
 class QuestionAnsweringService:
@@ -32,6 +30,8 @@ class QuestionAnsweringService:
 
     def __init__(self, db: Session):
         self.db = db
+        # Fixed: Initialize OpenAI client (openai>=1.0.0 pattern)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # ==================== Q&A Methods ====================
 
@@ -161,12 +161,14 @@ class QuestionAnsweringService:
         Generate embedding for question using OpenAI
         """
         try:
-            response = openai.Embedding.create(
+            # Fixed: Use new client.embeddings.create() API (openai>=1.0.0)
+            response = self.client.embeddings.create(
                 model="text-embedding-ada-002",
                 input=question
             )
 
-            return response['data'][0]['embedding']
+            # Fixed: Response is now an object, not dict
+            return response.data[0].embedding
 
         except Exception as e:
             logger.error(f"Question embedding failed: {str(e)}", exc_info=True)
@@ -203,7 +205,8 @@ Instructions:
 
 Answer:"""
 
-            response = openai.ChatCompletion.create(
+            # Fixed: Use new client.chat.completions.create() API (openai>=1.0.0)
+            response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a helpful neurosurgical knowledge base assistant."},
@@ -213,7 +216,8 @@ Answer:"""
                 max_tokens=500
             )
 
-            answer = response.choices[0].message['content'].strip()
+            # Fixed: Response is now an object, not dict
+            answer = response.choices[0].message.content.strip()
 
             # Estimate confidence based on context similarity
             avg_similarity = sum(doc['similarity'] for doc in context_docs) / len(context_docs)
