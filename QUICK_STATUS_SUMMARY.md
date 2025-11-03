@@ -11,7 +11,7 @@
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  Backend (FastAPI)          ✅ Operational                   │
-│  Frontend (React)           ✅ Operational                   │
+│  Frontend (React + MUI)     ✅ Operational                   │
 │  Database (PostgreSQL)      ✅ 47 tables, pgvector enabled   │
 │  Cache (Redis)              ✅ Operational                   │
 │  Workers (Celery)           ✅ 3 workers running             │

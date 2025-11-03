@@ -44,7 +44,7 @@ Generate comprehensive neurosurgical chapters through a sophisticated 14-stage A
 
 #### Frontend
 - **Framework:** React 18 with Vite
-- **UI Library:** Material-UI (MUI) v5
+- **UI Libraries:** Material-UI (MUI) v5 + Tailwind CSS
 - **State Management:** React Context + Hooks
 - **Real-time:** WebSocket connections for streaming updates
 
