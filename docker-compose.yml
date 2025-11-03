@@ -77,6 +77,7 @@ services:
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DISABLE_AUTH=${DISABLE_AUTH:-false}
     volumes:
       - ./backend:/app/backend
       - ./.env:/app/.env

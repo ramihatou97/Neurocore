@@ -387,13 +387,24 @@ async def generate_embeddings(
             if not entity:
                 raise HTTPException(status_code=404, detail="PDF not found")
 
-            if entity.embeddings_generated and not request.force_regenerate:
-                return {
-                    "entity_id": request.entity_id,
-                    "entity_type": request.entity_type,
-                    "status": "already_exists",
-                    "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
-                }
+            # Check if embeddings already exist (universal check)
+            if not request.force_regenerate:
+                # PDFs have embeddings_generated boolean flag
+                if hasattr(entity, 'embeddings_generated') and entity.embeddings_generated:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
+                # Fallback: check embedding vector directly
+                elif hasattr(entity, 'embedding') and entity.embedding is not None:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
 
             result = await embedding_service.generate_pdf_embeddings(request.entity_id)
 
@@ -403,13 +414,24 @@ async def generate_embeddings(
             if not entity:
                 raise HTTPException(status_code=404, detail="Chapter not found")
 
-            if entity.embeddings_generated and not request.force_regenerate:
-                return {
-                    "entity_id": request.entity_id,
-                    "entity_type": request.entity_type,
-                    "status": "already_exists",
-                    "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
-                }
+            # Check if embeddings already exist (universal check)
+            if not request.force_regenerate:
+                # Chapters may have embeddings_generated boolean flag (if added)
+                if hasattr(entity, 'embeddings_generated') and entity.embeddings_generated:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
+                # Fallback: check embedding vector directly
+                elif hasattr(entity, 'embedding') and entity.embedding is not None:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
 
             result = await embedding_service.generate_chapter_embeddings(request.entity_id)
 
@@ -422,13 +444,24 @@ async def generate_embeddings(
             if not entity.description:
                 raise HTTPException(status_code=400, detail="Image has no description")
 
-            if entity.embeddings_generated and not request.force_regenerate:
-                return {
-                    "entity_id": request.entity_id,
-                    "entity_type": request.entity_type,
-                    "status": "already_exists",
-                    "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
-                }
+            # Check if embeddings already exist (universal check)
+            if not request.force_regenerate:
+                # Images may have embeddings_generated boolean flag (if added)
+                if hasattr(entity, 'embeddings_generated') and entity.embeddings_generated:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
+                # Fallback: check embedding vector directly
+                elif hasattr(entity, 'embedding') and entity.embedding is not None:
+                    return {
+                        "entity_id": request.entity_id,
+                        "entity_type": request.entity_type,
+                        "status": "already_exists",
+                        "message": "Embeddings already exist. Use force_regenerate=true to regenerate."
+                    }
 
             result = await embedding_service.generate_image_embeddings(
                 request.entity_id,

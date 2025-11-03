@@ -3,7 +3,7 @@ Database connection management with connection pooling
 Provides database session management for the application
 """
 
-from sqlalchemy import create_engine, event, exc, pool
+from sqlalchemy import create_engine, event, exc, pool, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
@@ -146,7 +146,7 @@ class DatabaseConnection:
         """
         try:
             with self.engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             logger.debug("Database health check passed")
             return True
         except Exception as e:
