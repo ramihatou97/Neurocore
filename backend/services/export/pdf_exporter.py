@@ -13,7 +13,15 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 import markdown2
-from weasyprint import HTML, CSS
+
+# Make WeasyPrint optional (requires GTK+ system libraries on some platforms)
+try:
+    from weasyprint import HTML, CSS
+    WEASYPRINT_AVAILABLE = True
+except (ImportError, OSError) as e:
+    WEASYPRINT_AVAILABLE = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning(f"WeasyPrint not available: {e}. PDF export via WeasyPrint will not work.")
 
 from backend.services.export.latex_templates import LaTeXTemplates
 from backend.database.models.chapter import Chapter
@@ -142,7 +150,16 @@ class PDFExporter:
 
         Returns:
             PDF bytes
+
+        Raises:
+            RuntimeError: If WeasyPrint is not available or PDF generation fails
         """
+        if not WEASYPRINT_AVAILABLE:
+            raise RuntimeError(
+                "WeasyPrint is not available. This likely means GTK+ system libraries are not installed. "
+                "Please install GTK+ libraries or use use_latex=True for LaTeX-based PDF export."
+            )
+
         logger.info(f"Exporting chapter {chapter.id} via WeasyPrint")
 
         # Generate HTML content

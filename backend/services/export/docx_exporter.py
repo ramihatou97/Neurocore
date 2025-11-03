@@ -9,10 +9,18 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from io import BytesIO
 
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
+# Make python-docx optional (might not be installed in all environments)
+try:
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.style import WD_STYLE_TYPE
+    DOCX_AVAILABLE = True
+except ImportError as e:
+    DOCX_AVAILABLE = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning(f"python-docx not available: {e}. DOCX export will not work.")
+
 import markdown2
 
 from backend.database.models.chapter import Chapter
@@ -44,7 +52,15 @@ class DOCXExporter:
 
         Returns:
             DOCX file as bytes
+
+        Raises:
+            RuntimeError: If python-docx is not available
         """
+        if not DOCX_AVAILABLE:
+            raise RuntimeError(
+                "python-docx library is not available. Please install it with: pip install python-docx"
+            )
+
         logger.info(f"Exporting chapter {chapter.id} to DOCX")
 
         # Create new document
