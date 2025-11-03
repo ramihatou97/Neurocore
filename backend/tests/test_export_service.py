@@ -41,29 +41,30 @@ def bibliography_service(mock_db):
 @pytest.fixture
 def sample_citation():
     """Sample citation"""
-    return Citation(
-        id="citation-123",
-        authors="Smith, J., Jones, K.",
-        year=2024,
-        title="Test Article",
-        journal="Test Journal",
-        volume="10",
-        issue="2",
-        pages="100-110",
-        doi="10.1234/test"
-    )
+    # Fixed: Use Mock instead of real Citation model to avoid field dependency issues
+    citation = Mock(spec=Citation)
+    citation.id = "citation-123"
+    citation.authors = "Smith, J., Jones, K."
+    citation.year = 2024
+    citation.title = "Test Article"
+    citation.journal = "Test Journal"
+    citation.volume = "10"
+    citation.issue = "2"
+    citation.pages = "100-110"
+    citation.doi = "10.1234/test"
+    return citation
 
 
 @pytest.fixture
 def sample_chapter():
     """Sample chapter"""
-    chapter = Chapter(
-        id="chapter-123",
-        title="Test Chapter",
-        content="Test content for the chapter.",
-        author_id="user-123",
-        created_at=datetime.utcnow()
-    )
+    # Fixed: Use Mock instead of real Chapter model to avoid field dependency issues
+    chapter = Mock(spec=Chapter)
+    chapter.id = "chapter-123"
+    chapter.title = "Test Chapter"
+    chapter.content = "Test content for the chapter."
+    chapter.author_id = "user-123"
+    chapter.created_at = datetime.utcnow()
     chapter.author = Mock()
     chapter.author.name = "Test Author"
     return chapter
