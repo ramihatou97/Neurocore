@@ -5,7 +5,7 @@ Tests all search endpoints and their responses
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 from datetime import datetime
 
 from backend.main import app
@@ -61,7 +61,7 @@ class TestUnifiedSearch:
 
         # Mock search service response
         mock_service_instance = Mock()
-        mock_service_instance.search_all.return_value = {
+        mock_service_instance.search_all = AsyncMock(return_value={
             "query": "brain tumor",
             "search_type": "hybrid",
             "total": 1,
@@ -74,7 +74,7 @@ class TestUnifiedSearch:
                 }
             ],
             "filters_applied": {}
-        }
+        })
         mock_search_service.return_value = mock_service_instance
 
         response = client.post(
@@ -116,13 +116,13 @@ class TestUnifiedSearch:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.search_all.return_value = {
+        mock_service_instance.search_all = AsyncMock(return_value={
             "query": "brain",
             "search_type": "keyword",
             "total": 0,
             "results": [],
             "filters_applied": {"content_type": "pdf"}
-        }
+        })
         mock_search_service.return_value = mock_service_instance
 
         response = client.post(
@@ -147,13 +147,13 @@ class TestUnifiedSearch:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.search_all.return_value = {
+        mock_service_instance.search_all = AsyncMock(return_value={
             "query": "test",
             "search_type": "hybrid",
             "total": 50,
             "results": [{"id": str(i)} for i in range(20)],
             "filters_applied": {}
-        }
+        })
         mock_search_service.return_value = mock_service_instance
 
         response = client.post(
@@ -173,6 +173,9 @@ class TestUnifiedSearch:
 
     def test_unified_search_unauthorized(self, client):
         """Test search without authentication"""
+        # Temporarily clear dependency overrides to test authentication
+        app.dependency_overrides.clear()
+
         response = client.post(
             "/api/v1/search",
             json={"query": "test", "search_type": "hybrid"}
@@ -191,11 +194,11 @@ class TestSearchSuggestions:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.get_search_suggestions.return_value = [
+        mock_service_instance.get_search_suggestions = AsyncMock(return_value=[
             "brain tumor classification",
             "brain tumor types",
             "brain tumor surgery"
-        ]
+        ])
         mock_search_service.return_value = mock_service_instance
 
         response = client.get(
@@ -216,7 +219,7 @@ class TestSearchSuggestions:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.get_search_suggestions.return_value = []
+        mock_service_instance.get_search_suggestions = AsyncMock(return_value=[])
         mock_search_service.return_value = mock_service_instance
 
         response = client.get(
@@ -230,6 +233,9 @@ class TestSearchSuggestions:
 
     def test_get_suggestions_unauthorized(self, client):
         """Test suggestions without authentication"""
+        # Temporarily clear dependency overrides to test authentication
+        app.dependency_overrides.clear()
+
         response = client.get("/api/v1/search/suggestions?q=brain")
         assert response.status_code == 401
 
@@ -244,10 +250,10 @@ class TestRelatedContent:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.find_related_content.return_value = [
+        mock_service_instance.find_related_content = AsyncMock(return_value=[
             {"id": "pdf-456", "title": "Related Paper 1", "similarity": 0.85},
             {"id": "pdf-789", "title": "Related Paper 2", "similarity": 0.75}
-        ]
+        ])
         mock_search_service.return_value = mock_service_instance
 
         response = client.post(
@@ -314,9 +320,9 @@ class TestSemanticSearch:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.find_similar_pdfs.return_value = [
+        mock_service_instance.find_similar_pdfs = AsyncMock(return_value=[
             {"id": "pdf-123", "title": "Test PDF", "similarity": 0.85}
-        ]
+        ])
         mock_embedding_service.return_value = mock_service_instance
 
         response = client.get(
@@ -337,9 +343,9 @@ class TestSemanticSearch:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.find_similar_images.return_value = [
+        mock_service_instance.find_similar_images = AsyncMock(return_value=[
             {"id": "img-123", "description": "Brain MRI", "similarity": 0.80}
-        ]
+        ])
         mock_embedding_service.return_value = mock_service_instance
 
         response = client.get(
@@ -365,17 +371,25 @@ class TestEmbeddingManagement:
 
         # Mock database
         from backend.database.models import PDF
-        mock_pdf = PDF(id="pdf-123", title="Test", embedding=None)
+        mock_pdf = PDF(
+            id="pdf-123",
+            filename="test.pdf",
+            file_path="/test/test.pdf",
+            title="Test",
+            embeddings_generated=False
+        )
         mock_db = Mock()
         mock_db.query.return_value.filter.return_value.first.return_value = mock_pdf
-        mock_get_db.return_value = mock_db
+        # Mock get_db as context manager
+        mock_get_db.return_value.__enter__.return_value = mock_db
+        mock_get_db.return_value.__exit__.return_value = None
 
         # Mock embedding service
         mock_service_instance = Mock()
-        mock_service_instance.generate_pdf_embeddings.return_value = {
+        mock_service_instance.generate_pdf_embeddings = AsyncMock(return_value={
             "success": True,
             "embedding_dimension": 1536
-        }
+        })
         mock_embedding_service.return_value = mock_service_instance
 
         response = client.post(
@@ -401,10 +415,18 @@ class TestEmbeddingManagement:
 
         # Mock database with PDF that has embeddings
         from backend.database.models import PDF
-        mock_pdf = PDF(id="pdf-123", title="Test", embedding=[0.1] * 1536)
+        mock_pdf = PDF(
+            id="pdf-123",
+            filename="test.pdf",
+            file_path="/test/test.pdf",
+            title="Test",
+            embeddings_generated=True
+        )
         mock_db = Mock()
         mock_db.query.return_value.filter.return_value.first.return_value = mock_pdf
-        mock_get_db.return_value = mock_db
+        # Mock get_db as context manager
+        mock_get_db.return_value.__enter__.return_value = mock_db
+        mock_get_db.return_value.__exit__.return_value = None
 
         response = client.post(
             "/api/v1/embeddings/generate",
@@ -429,7 +451,9 @@ class TestEmbeddingManagement:
         # Mock database returning None
         mock_db = Mock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
-        mock_get_db.return_value = mock_db
+        # Mock get_db as context manager
+        mock_get_db.return_value.__enter__.return_value = mock_db
+        mock_get_db.return_value.__exit__.return_value = None
 
         response = client.post(
             "/api/v1/embeddings/generate",
@@ -450,11 +474,11 @@ class TestEmbeddingManagement:
         # Authentication handled by override_get_current_user fixture
 
         mock_service_instance = Mock()
-        mock_service_instance.update_all_pdf_embeddings.return_value = {
+        mock_service_instance.update_all_pdf_embeddings = AsyncMock(return_value={
             "total_processed": 10,
             "success": 8,
             "errors": 2
-        }
+        })
         mock_embedding_service.return_value = mock_service_instance
 
         response = client.post(
@@ -487,7 +511,9 @@ class TestSearchStatistics:
         mock_query.filter.return_value = mock_query
         mock_db.query.return_value = mock_query
 
-        mock_get_db.return_value = mock_db
+        # Mock get_db as context manager
+        mock_get_db.return_value.__enter__.return_value = mock_db
+        mock_get_db.return_value.__exit__.return_value = None
 
         response = client.get(
             "/api/v1/search/stats",

@@ -12,6 +12,7 @@ from backend.database.connection import get_db
 from backend.database.models import User
 from backend.services.search_service import SearchService
 from backend.services.embedding_service import EmbeddingService
+from backend.services.unified_search_service import UnifiedSearchService
 from backend.utils.dependencies import get_current_user
 from backend.utils import get_logger
 
@@ -166,6 +167,130 @@ async def find_related_content(
         raise HTTPException(status_code=500, detail=f"Related content search failed: {str(e)}")
 
 
+# ==================== Phase 2.3: Unified Chapter + Image Search ====================
+
+@router.get("/search/unified/chapters-images")
+async def search_chapters_and_images(
+    q: str = Query(..., min_length=1, max_length=500, description="Search query"),
+    content_types: Optional[List[str]] = Query(
+        default=None,
+        description="Content types to search: 'chapters', 'images', or 'all' (default: all)"
+    ),
+    max_results: int = Query(default=20, ge=1, le=100, description="Maximum total results"),
+    max_per_type: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=50,
+        description="Maximum results per content type (optional)"
+    ),
+    min_score: float = Query(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relevance score threshold"
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Unified search across generated chapters and standalone images
+
+    **Phase 2.3 Implementation**: Searches both AI-generated chapters and
+    standalone medical images with combined relevance ranking.
+
+    **Features**:
+    - Parallel search execution for performance
+    - Normalized scoring (0-1 range) for fair comparison
+    - Combined ranking by relevance
+    - Content type filtering
+    - Rich metadata for each result type
+    - Query highlighting in results
+
+    **Search Strategy**:
+    - **Chapters**: Text matching + quality scores + recency
+    - **Images**: Semantic similarity using vector embeddings
+    - **Combined**: Unified 0-1 relevance score for ranking
+
+    **Parameters**:
+    - **q**: Search query (required, 1-500 chars)
+    - **content_types**: Filter by type(s) - "chapters", "images", or "all" (default: all)
+    - **max_results**: Maximum total results (1-100, default: 20)
+    - **max_per_type**: Optional limit per content type for balanced results
+    - **min_score**: Minimum relevance score (0.0-1.0, default: 0.5)
+
+    **Response Structure**:
+    ```json
+    {
+      "query": "microsurgical temporal lobe",
+      "total_results": 15,
+      "results": [
+        {
+          "content_type": "chapter",
+          "id": "uuid",
+          "title": "Glioblastoma Management",
+          "relevance_score": 0.85,
+          "snippet": "...microsurgical approach to temporal lobe...",
+          "metadata": {...},
+          "url": "/chapters/uuid"
+        },
+        {
+          "content_type": "image",
+          "id": "uuid",
+          "title": "Intraoperative microsurgical view...",
+          "relevance_score": 0.82,
+          "snippet": "Shows temporal lobe resection technique",
+          "metadata": {...},
+          "url": "/images/uuid"
+        }
+      ],
+      "by_type": {
+        "chapters": 8,
+        "images": 7
+      },
+      "search_params": {...}
+    }
+    ```
+
+    **Use Cases**:
+    - Search for both educational chapters and visual examples
+    - Find related images when viewing a chapter
+    - Discover comprehensive resources on a topic
+    - Content discovery and exploration
+    """
+    try:
+        logger.info(
+            f"User {current_user.id} unified search: '{q}' "
+            f"(types={content_types}, max_results={max_results})"
+        )
+
+        # Initialize unified search service
+        unified_service = UnifiedSearchService(db)
+
+        # Execute unified search
+        results = await unified_service.search_unified(
+            query=q,
+            content_types=content_types,
+            max_results=max_results,
+            max_per_type=max_per_type,
+            min_score=min_score
+        )
+
+        logger.info(
+            f"Unified search complete: {results['total_results']} results "
+            f"({results['by_type']['chapters']} chapters, "
+            f"{results['by_type']['images']} images)"
+        )
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Unified search failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unified search failed: {str(e)}"
+        )
+
+
 # ==================== Semantic Search Endpoints ====================
 
 @router.get("/search/semantic/pdfs")
@@ -262,7 +387,7 @@ async def generate_embeddings(
             if not entity:
                 raise HTTPException(status_code=404, detail="PDF not found")
 
-            if entity.embedding and not request.force_regenerate:
+            if entity.embeddings_generated and not request.force_regenerate:
                 return {
                     "entity_id": request.entity_id,
                     "entity_type": request.entity_type,
@@ -278,7 +403,7 @@ async def generate_embeddings(
             if not entity:
                 raise HTTPException(status_code=404, detail="Chapter not found")
 
-            if entity.embedding and not request.force_regenerate:
+            if entity.embeddings_generated and not request.force_regenerate:
                 return {
                     "entity_id": request.entity_id,
                     "entity_type": request.entity_type,
@@ -297,7 +422,7 @@ async def generate_embeddings(
             if not entity.description:
                 raise HTTPException(status_code=400, detail="Image has no description")
 
-            if entity.embedding and not request.force_regenerate:
+            if entity.embeddings_generated and not request.force_regenerate:
                 return {
                     "entity_id": request.entity_id,
                     "entity_type": request.entity_type,
